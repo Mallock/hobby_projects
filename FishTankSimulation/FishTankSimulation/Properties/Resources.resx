@@ -1,0 +1,352 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <!-- 
+    Microsoft ResX Schema 
+    
+    Version 2.0
+    
+    The primary goals of this format is to allow a simple XML format 
+    that is mostly human readable. The generation and parsing of the 
+    various data types are done through the TypeConverter classes 
+    associated with the data types.
+    
+    Example:
+    
+    ... ado.net/XML headers & schema ...
+    <resheader name="resmimetype">text/microsoft-resx</resheader>
+    <resheader name="version">2.0</resheader>
+    <resheader name="reader">System.Resources.ResXResourceReader, System.Windows.Forms, ...</resheader>
+    <resheader name="writer">System.Resources.ResXResourceWriter, System.Windows.Forms, ...</resheader>
+    <data name="Name1"><value>this is my long string</value><comment>this is a comment</comment></data>
+    <data name="Color1" type="System.Drawing.Color, System.Drawing">Blue</data>
+    <data name="Bitmap1" mimetype="application/x-microsoft.net.object.binary.base64">
+        <value>[base64 mime encoded serialized .NET Framework object]</value>
+    </data>
+    <data name="Icon1" type="System.Drawing.Icon, System.Drawing" mimetype="application/x-microsoft.net.object.bytearray.base64">
+        <value>[base64 mime encoded string representing a byte array form of the .NET Framework object]</value>
+        <comment>This is a comment</comment>
+    </data>
+                
+    There are any number of "resheader" rows that contain simple 
+    name/value pairs.
+    
+    Each data row contains a name, and value. The row also contains a 
+    type or mimetype. Type corresponds to a .NET class that support 
+    text/value conversion through the TypeConverter architecture. 
+    Classes that don't support this are serialized and stored with the 
+    mimetype set.
+    
+    The mimetype is used for serialized objects, and tells the 
+    ResXResourceReader how to depersist the object. This is currently not 
+    extensible. For a given mimetype the value must be set accordingly:
+    
+    Note - application/x-microsoft.net.object.binary.base64 is the format 
+    that the ResXResourceWriter will generate, however the reader can 
+    read any of the formats listed below.
+    
+    mimetype: application/x-microsoft.net.object.binary.base64
+    value   : The object must be serialized with 
+            : System.Runtime.Serialization.Formatters.Binary.BinaryFormatter
+            : and then encoded with base64 encoding.
+    
+    mimetype: application/x-microsoft.net.object.soap.base64
+    value   : The object must be serialized with 
+            : System.Runtime.Serialization.Formatters.Soap.SoapFormatter
+            : and then encoded with base64 encoding.
+
+    mimetype: application/x-microsoft.net.object.bytearray.base64
+    value   : The object must be serialized into a byte array 
+            : using a System.ComponentModel.TypeConverter
+            : and then encoded with base64 encoding.
+    -->
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="metadata">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" />
+              </xsd:sequence>
+              <xsd:attribute name="name" use="required" type="xsd:string" />
+              <xsd:attribute name="type" type="xsd:string" />
+              <xsd:attribute name="mimetype" type="xsd:string" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="assembly">
+            <xsd:complexType>
+              <xsd:attribute name="alias" type="xsd:string" />
+              <xsd:attribute name="name" type="xsd:string" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
+              <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
+              <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <assembly alias="System.Windows.Forms" name="System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089" />
+  <data name="11823407_game_pearl_shells_blue pearl_sea_icon" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\11823407_game_pearl_shells_blue pearl_sea_icon.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="11823408_game_castle_prince_princess_building_icon" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\11823408_game_castle_prince_princess_building_icon.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="1531904_cemetery_death_grave_rip_stone_icon" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\1531904_cemetery_death_grave_rip_stone_icon.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="2427851_fish_fishing_food_sea_sea creature_icon" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\2427851_fish_fishing_food_sea_sea creature_icon.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="2427851_fish_fishing_food_sea_sea creature_icon_right" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\2427851_fish_fishing_food_sea_sea creature_icon_right.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="5254878_dangerous_invertebrate_jellyfish_marine_medusa_icon" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\5254878_dangerous_invertebrate_jellyfish_marine_medusa_icon.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="5854035_beach_castle_flag_play_sand_icon" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\5854035_beach_castle_flag_play_sand_icon.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="61832_submarine_yellow_icon" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\61832_submarine_yellow_icon.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="6325_animal_blue_fish_icon" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\6325_animal_blue_fish_icon.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="7037881_coral_sea_rock_divers_marine life_icon" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\7037881_coral_sea_rock_divers_marine life_icon.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="7204525_submarine_underwater_sea_ship_war_icon" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\7204525_submarine_underwater_sea_ship_war_icon.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="8935911_animal_angler_fish_anglerfish_deep_icon" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\8935911_animal_angler_fish_anglerfish_deep_icon.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="8935912_fish_ocean_sea_surgeon_life_icon" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\8935912_fish_ocean_sea_surgeon_life_icon.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="8935916_clown_fish_ocean_sea_life_icon" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\8935916_clown_fish_ocean_sea_life_icon.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="8935917_aquarium_fish_hippocampus_marine_seahorse_icon" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\8935917_aquarium_fish_hippocampus_marine_seahorse_icon.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="8935918_coral_diving_nature_ocean_reef_icon" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\8935918_coral_diving_nature_ocean_reef_icon.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="8935921_algae_bloom_cladophora_seaweed_underwater_icon" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\8935921_algae_bloom_cladophora_seaweed_underwater_icon.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="8935924_aquarium_blowfish_fish_puffer_pufferfish_icon" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\8935924_aquarium_blowfish_fish_puffer_pufferfish_icon.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="8935935_hermit_crab_mollusk_sea_beach_icon" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\8935935_hermit_crab_mollusk_sea_beach_icon.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="8935941_aquatic_animal_fish_ocean_sea_icon" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\8935941_aquatic_animal_fish_ocean_sea_icon.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="8936047_moorish_idol_fish_ocean_sea_icon" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\8936047_moorish_idol_fish_ocean_sea_icon.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="8936057_algae_bloom_cladophora_seaweed_underwater_icon" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\8936057_algae_bloom_cladophora_seaweed_underwater_icon.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="8936060_yellow_tang_fish_ocean_sea_icon" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\8936060_yellow_tang_fish_ocean_sea_icon.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="algae2" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\algae2.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="angelfish" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\angelfish.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="big_gold_fish" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\big_gold_fish.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="blue_fish" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\blue_fish.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="bubble_1" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\bubble_1.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="bubble_2" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\bubble_2.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="bubble_3" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\bubble_3.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="bubble_4" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\bubble_4.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="bubble_5" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\bubble_5.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="bubble_6" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\bubble_6.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="bubble_7" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\bubble_7.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="candy_fish" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\candy_fish.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="clown_fish" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\clown_fish.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="coral1" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\coral1.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="coral2" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\coral2.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="coral3" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\coral3.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="coral_scaled" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\coral_scaled.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="coral_scaled_flip" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\coral_scaled_flip.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="fishleaves" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\fishleaves.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="gold_fish" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\gold_fish.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="hermit_crab" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\hermit_crab.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="hermit_crab_bright" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\hermit_crab_bright.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="hermit_crab_bright_yellow" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\hermit_crab_bright_yellow.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="idol_fish" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\idol_fish.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="idol_fish_red" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\idol_fish_red.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="Mackerel" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\Mackerel.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="medusa" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\medusa.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="octopus" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\octopus.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="parvi" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\parvi.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="rb_18512" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\rb_18512.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="red_fish" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\red_fish.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="rip_small" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\rip_small.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="Rocks" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\Rocks.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="salmon" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\salmon.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="sardine" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\sardine.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="seafish1" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\seafish1.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="seafish2" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\seafish2.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="seafish3" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\seafish3.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="seafish4" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\seafish4.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="seafish5" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\seafish5.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="seafish6" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\seafish6.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="sea_grass" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\sea_grass.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="sea_grass_flip" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\sea_grass_flip.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="sea_leaves" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\sea_leaves.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="sea_leaves_flip" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\sea_leaves_flip.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="Shark" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\Shark.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="shrimp" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\shrimp.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="squid" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\squid.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="StarFish" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\StarFish.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="sub" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\sub.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="sub2" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\sub2.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="surgeon_fish" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\surgeon_fish.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="tang_fish" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\tang_fish.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+  <data name="Tiles - Beach" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\Tiles - Beach.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
+</root>
