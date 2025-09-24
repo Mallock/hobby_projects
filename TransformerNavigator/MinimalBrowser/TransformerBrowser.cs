@@ -202,7 +202,7 @@ namespace MinimalBrowser
             if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out var uri))
                 return;
 
-            if (uri.Scheme == "about")
+            if (uri.Scheme.Equals("about", StringComparison.OrdinalIgnoreCase))
                 return;
 
             if (!_homePageRendered)
@@ -213,7 +213,7 @@ namespace MinimalBrowser
                 string langCode = NormalizeLanguageCode(_defaultLanguage);
                 var homeRequest = BuildHomeRequest(langCode);
 
-                _pendingNavContext = homeRequest.NavContext;
+                _pendingNavContext = StripDrivePrefix(homeRequest.NavContext);
                 try
                 {
                     await RenderPrompt(homeRequest);
@@ -225,7 +225,7 @@ namespace MinimalBrowser
                 return;
             }
 
-            if (uri.Scheme == "file")
+            if (uri.Scheme.Equals("file", StringComparison.OrdinalIgnoreCase))
             {
                 var localPath = Path.GetFullPath(uri.LocalPath);
                 if (_generatedFiles.Contains(localPath))
@@ -237,19 +237,23 @@ namespace MinimalBrowser
             string navContextRaw = uri.PathAndQuery;
             string navContextClean = CleanNavigationContext(navContextRaw);
             var queryParams = ParseQueryParams(navContextClean);
+
             string languageCode = NormalizeLanguageCode(
                 queryParams.TryGetValue("lang", out var langValue) ? langValue : null);
-            string navContextWithLang = EnsureLangInContext(navContextClean, languageCode);
 
-            // Ignore the page we just rendered or one we are currently generating
-            if (string.Equals(navContextWithLang, _lastNavContext, StringComparison.OrdinalIgnoreCase))
+            string navContextWithLang = EnsureLangInContext(navContextClean, languageCode);
+            navContextWithLang = StripDrivePrefix(navContextWithLang);
+
+            string originContext = _lastNavContext ?? "initial-load";
+            originContext = StripDrivePrefix(originContext);
+
+            if (string.Equals(navContextWithLang, originContext, StringComparison.OrdinalIgnoreCase))
                 return;
 
             if (!string.IsNullOrEmpty(_pendingNavContext) &&
                 string.Equals(navContextWithLang, _pendingNavContext, StringComparison.OrdinalIgnoreCase))
                 return;
 
-            string originContext = _lastNavContext ?? "initial-load";
             string searchQuery = BuildSearchQuery(navContextWithLang, queryParams);
             string searchSnapshot = await FetchSearchSnapshotAsync(searchQuery, languageCode);
 
@@ -268,7 +272,7 @@ namespace MinimalBrowser
                     searchSnapshot, searchQuery);
             }
 
-            _pendingNavContext = navContextWithLang;
+            _pendingNavContext = StripDrivePrefix(request.NavContext);
             try
             {
                 await RenderPrompt(request);
@@ -538,7 +542,36 @@ namespace MinimalBrowser
                 IsSearch: true
             );
         }
+        private string StripDrivePrefix(string route)
+        {
+            if (string.IsNullOrWhiteSpace(route))
+                return "/";
 
+            if (route.Equals("initial-load", StringComparison.OrdinalIgnoreCase))
+                return route;
+
+            string trimmed = route.Trim();
+
+            int queryIndex = trimmed.IndexOf('?');
+            string path = queryIndex >= 0 ? trimmed[..queryIndex] : trimmed;
+            string query = queryIndex >= 0 ? trimmed[queryIndex..] : string.Empty;
+
+            if (path.StartsWith("/", StringComparison.Ordinal))
+            {
+                if (path.Length >= 4 && char.IsLetter(path[1]) && path[2] == ':' && path[3] == '/')
+                {
+                    path = path[3..];            // “/C:/foo” → “/foo”
+                }
+            }
+
+            if (!path.StartsWith("/", StringComparison.Ordinal))
+                path = "/" + path.TrimStart('/');
+
+            while (path.Contains("//", StringComparison.Ordinal))
+                path = path.Replace("//", "/");
+
+            return path + query;
+        }
         private async Task RenderPrompt(ContentRequest request)
         {
             string originRoute = EnsureLangInContext(request.OriginContext ?? "initial-load", request.LanguageCode);
@@ -555,9 +588,10 @@ namespace MinimalBrowser
             };
 
             string enrichment = TemplateRenderer.Render(_settings.Prompts.MainEnrichmentTemplate, enrichmentTokens);
+            string basePrompt = request.Prompt;
             string enrichedPrompt = string.IsNullOrWhiteSpace(enrichment)
-                ? request.Prompt
-                : $"{request.Prompt}\n\n{enrichment}";
+                ? basePrompt
+                : $"{basePrompt}\n\n{enrichment}";
 
             await PrepareLoadingSnippetsAsync(request.NavContext, request.OriginContext, request.LanguageCode, request.LanguageName);
             ShowLoadingOverlay(request.LoadingMessage);
@@ -596,7 +630,7 @@ namespace MinimalBrowser
             }
             finally
             {
-                _lastNavContext = request.NavContext;
+                _lastNavContext = StripDrivePrefix(request.NavContext);
                 HideLoadingOverlay();
             }
         }
@@ -1026,39 +1060,17 @@ namespace MinimalBrowser
             if (hashIndex >= 0)
                 normalized = normalized[..hashIndex];
 
-            if (!normalized.StartsWith("/"))
-                normalized = "/" + normalized.TrimStart('/');
-
             if (LangQueryRegex.IsMatch(normalized))
-            {
                 normalized = LangQueryRegex.Replace(normalized, $"lang={languageCode}");
-            }
             else
-            {
-                normalized += normalized.Contains("?") ? $"&lang={languageCode}" : $"?lang={languageCode}";
-            }
+                normalized += normalized.Contains('?') ? $"&lang={languageCode}" : $"?lang={languageCode}";
 
-            if (normalized.Contains("://"))
-                normalized = normalized[(normalized.IndexOf("://", StringComparison.Ordinal) + 3)..];
-
-            if (!normalized.StartsWith("/"))
-                normalized = "/" + normalized.TrimStart('/');
-
+            normalized = StripDrivePrefix(normalized);
             return normalized + fragment;
         }
 
         private string CleanNavigationContext(string navContext)
-        {
-            if (string.IsNullOrWhiteSpace(navContext))
-                return "/";
-
-            string trimmed = navContext.Trim();
-
-            if (DrivePathRegex.IsMatch(trimmed))
-                return "/";
-
-            return trimmed;
-        }
+            => StripDrivePrefix(string.IsNullOrWhiteSpace(navContext) ? "/" : navContext.Trim());
 
         private string BuildSearchQuery(string navContext, Dictionary<string, string> queryParams)
         {
@@ -1193,10 +1205,10 @@ namespace MinimalBrowser
 
         private string FormatSearchSnapshot(string query, string snapshot)
         {
-            if (string.IsNullOrWhiteSpace(snapshot))
-                return $"Live Bing request for \"{query}\" did not yield content or timed out. Continue the narrative with internal evidence.";
+            if (string.IsNullOrWhiteSpace(query))
+                return "No external search query supplied.";
 
-            return $"Raw Bing search HTML snapshot for \"{query}\":\n\n{snapshot}";
+            return $"Search query reference: \"{query}\" (external snapshot omitted for local file mode).";
         }
 
         private string GetLoadingMessage(bool isSearch, string languageCode)
