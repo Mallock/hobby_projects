@@ -163,6 +163,7 @@ namespace MinimalBrowser
                                         ? "Tutki alla olevia pitkiä kuvailevia reittejä ja syvennä ymmärrystäsi."
                                         : "Explore the descriptive routes below to deepen your understanding.")
                                     : payload.Welcome)
+                    .SetArticleHtml(payload.ArticleHtml) // NEW
                     .AddMenu(languageCode == "fi" ? "Etusivu" : "Home", "home")
                     .AddMenu(languageCode == "fi" ? "Tutki" : "Explore", "explore")
                     .AddMenu(languageCode == "fi" ? "Tietoja" : "About", "info");
@@ -293,7 +294,8 @@ namespace MinimalBrowser
                 Title = TryGetString(doc.RootElement, "title"),
                 Welcome = TryGetString(doc.RootElement, "welcome"),
                 Tags = new List<LlmTag>(),
-                Links = new List<LlmLink>()
+                Links = new List<LlmLink>(),
+                ArticleHtml = TryGetString(doc.RootElement, "articleHtml") // NEW
             };
 
             if (doc.RootElement.TryGetProperty("tags", out var tagsEl))
@@ -555,6 +557,7 @@ namespace MinimalBrowser
             public string Welcome { get; set; }
             public List<LlmTag> Tags { get; set; } = new();
             public List<LlmLink> Links { get; set; } = new();
+            public string ArticleHtml { get; set; } // NEW
         }
         private sealed class LlmTag
         {

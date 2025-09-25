@@ -27,7 +27,7 @@ namespace TransformerNavigator
         private readonly List<MenuItem> _menus = new List<MenuItem>();
         private readonly List<TagItem> _tags = new List<TagItem>();
         private readonly List<CardItem> _cards = new List<CardItem>();
-
+        private string _articleHtml = "";
         private static readonly JsonSerializerOptions JsonOpts = new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -47,7 +47,11 @@ namespace TransformerNavigator
             _welcomeText = string.IsNullOrWhiteSpace(text) ? _welcomeText : text;
             return this;
         }
-
+        public MuiHtmlTemplateBuilder SetArticleHtml(string html)
+        {
+            _articleHtml = html ?? "";
+            return this;
+        }
         public MuiHtmlTemplateBuilder AddMenu(string label, string iconName)
         {
             _menus.Add(new MenuItem { Label = label ?? "", Icon = iconName ?? "home" });
@@ -87,7 +91,8 @@ namespace TransformerNavigator
                 menus = _menus,
                 tags = _tags,
                 cards = _cards,
-                welcome = new { title = _welcomeTitle, text = _welcomeText }
+                welcome = new { title = _welcomeTitle, text = _welcomeText },
+                articleHtml = _articleHtml 
             };
 
             string json = JsonSerializer.Serialize(dataJson, JsonOpts);
@@ -156,7 +161,7 @@ namespace TransformerNavigator
             sb.AppendLine("            </AppBar>");
             sb.AppendLine("            <Container className=\"content\" component=\"section\">");
             sb.AppendLine("              <Typography variant=\"h4\" gutterBottom component=\"h1\">{DATA.welcome.title}</Typography>");
-            sb.AppendLine("              <Typography paragraph>{DATA.welcome.text}</Typography>");
+            sb.AppendLine("              <Typography paragraph>{DATA.welcome.text}</Typography>{DATA.articleHtml ? (\r\n  <Card sx={{ borderRadius: 3, boxShadow: 3, mb: 3 }}>\r\n    <CardContent>\r\n      <div dangerouslySetInnerHTML={{ __html: DATA.articleHtml }} />\r\n    </CardContent>\r\n  </Card>\r\n) : null}");
             sb.AppendLine("              <Grid container spacing={3}>");
             sb.AppendLine("                {DATA.cards.map((c, i) => (");
             sb.AppendLine("                  <Grid item xs={12} sm={6} md={4} key={i}><LinkCard title={c.title} body={c.body} href={c.href} /></Grid>");
