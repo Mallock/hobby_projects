@@ -56,8 +56,6 @@
             Name = "TransformerBrowser";
             StartPosition = FormStartPosition.CenterScreen;
             Text = "Transformer Navigator";
-            Activated += WebBrowser_Activated;
-            Deactivate += WebBrowser_Deactivate;
             ((System.ComponentModel.ISupportInitialize)webView21).EndInit();
             ResumeLayout(false);
         }
