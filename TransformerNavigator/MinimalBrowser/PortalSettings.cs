@@ -9,7 +9,7 @@ namespace TransformerNavigator
 {
     public class PortalSettings
     {
-        public string DefaultLanguage { get; set; } = "fi";
+        public string DefaultLanguage { get; set; } = "en";
         public OpenAISection OpenAI { get; set; } = new();
         public PromptsSection Prompts { get; set; } = new();
         public TemplatesSection Templates { get; set; } = new();

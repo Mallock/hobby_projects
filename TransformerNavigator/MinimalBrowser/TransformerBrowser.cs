@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -28,7 +29,10 @@ namespace MinimalBrowser
         private bool _homePageRendered = false;
         private string _lastRoute = "initial-load";
         private string _pendingRoute = null;
-
+        private string _lastLlmRaw = null;
+        private string _lastLlmJsonCandidate = null;
+        private string _lastLlmParseError = null;
+        private string _lastLlmDebugDumpFile = null;
         public TransformerBrowser()
         {
             InitializeComponent();
@@ -54,7 +58,40 @@ namespace MinimalBrowser
                 return ChatProvider.LlamaCpp;
             return ChatProvider.OpenAI;
         }
+        private IChatClient CreateRepairChatClient(string languageCode)
+        {
+            string langName = languageCode == "fi" ? "Finnish" : "English";
+            // Korjaaja: ei luo uutta sisältöä, vaan korjaa syntaksin ja sulkee rakenteet
+            string system = "You are a strict JSON repair engine. Fix invalid or truncated JSON to a single valid JSON object only. Do not invent new content beyond closing open strings and tags. Maintain language and fields.";
+            var model = string.IsNullOrWhiteSpace(_settings.OpenAI?.PrimaryModel) ? "gpt-4o-mini" : _settings.OpenAI.PrimaryModel;
+            return CreateChatClient(model, system);
+        }
+        private async Task<JsonDocument> TryRepairJsonWithLlmAsync(string brokenJson, string languageCode)
+        {
+            try
+            {
+                var client = CreateRepairChatClient(languageCode);
 
+                // Tiukka ohjeistus: sama skeema, minimöity, ei selitteitä
+                string schema = "{\"title\":\"\",\"welcome\":\"\",\"tags\":[{\"label\":\"\",\"icon\":\"\"}],\"links\":[{\"title\":\"\",\"summary\":\"\",\"route\":\"\"}],\"articleHtml\":\"\"}";
+                string final = $"Return only minified JSON for schema {schema}. No code fences, no comments, no extra fields.";
+                client.AddUserMessage(
+                    "Repair the following truncated or invalid JSON to a single syntactically valid JSON object. " +
+                    "Keep the content; only complete open strings (especially articleHtml) and close tags and braces. " +
+                    "Ensure articleHtml uses only <h2>,<h3>,<p>,<ul>,<ol>,<li>,<a> and is properly closed. " +
+                    "Output strictly in the original language. JSON below between <json> tags:\n<json>\n" +
+                    brokenJson + "\n</json>");
+                client.SetFinalInstructionMessage(final);
+
+                string repaired = await client.GetChatCompletionAsync();
+                string candidate = StripCodeFence(repaired);
+                return JsonDocument.Parse(candidate);
+            }
+            catch
+            {
+                return null;
+            }
+        }
         private IChatClient CreateChatClient(string model, string systemMessage)
         {
             var provider = GetProvider();
@@ -153,8 +190,19 @@ namespace MinimalBrowser
             _pendingRoute = route;
             try
             {
+                // 1) Kick off a quick teaser; time-box to avoid blocking the spinner
+                string fallbackQuip = languageCode == "fi"
+                    ? "Kootaan reittejä ja artikkelia – hetki vielä."
+                    : "Assembling routes and the article — just a moment.";
+                string quip = await WithTimeout(GetLoadingSnippetAsync(route, _lastRoute, languageCode), 1200, fallbackQuip);
+
+                // 2) Show the loading shell immediately
+                await ShowLoadingShellAsync(route, languageCode, quip);
+
+                // 3) Fetch the real payload
                 var payload = await GetLlmNavigationAsync(route, _lastRoute, languageCode);
 
+                // 4) Build final page (existing logic)
                 var builder = new MuiHtmlTemplateBuilder()
                     .SetDocumentTitle(payload.Title ?? DeriveTitleFromRoute(route, languageCode))
                     .SetWelcome(payload.Title ?? DeriveTitleFromRoute(route, languageCode),
@@ -163,7 +211,7 @@ namespace MinimalBrowser
                                         ? "Tutki alla olevia pitkiä kuvailevia reittejä ja syvennä ymmärrystäsi."
                                         : "Explore the descriptive routes below to deepen your understanding.")
                                     : payload.Welcome)
-                    .SetArticleHtml(payload.ArticleHtml) // NEW
+                    .SetArticleHtml(payload.ArticleHtml)
                     .AddMenu(languageCode == "fi" ? "Etusivu" : "Home", "home")
                     .AddMenu(languageCode == "fi" ? "Tutki" : "Explore", "explore")
                     .AddMenu(languageCode == "fi" ? "Tietoja" : "About", "info");
@@ -198,6 +246,7 @@ namespace MinimalBrowser
                 }
 
                 string html = builder.Build();
+
                 if (!string.IsNullOrEmpty(_lastTempFile) && File.Exists(_lastTempFile))
                 {
                     try { File.Delete(_lastTempFile); } catch { }
@@ -230,7 +279,12 @@ namespace MinimalBrowser
             var builder = new MuiHtmlTemplateBuilder()
                 .SetDocumentTitle(lang == "fi" ? "Virhe portaalissa" : "Portal error")
                 .SetWelcome(lang == "fi" ? "Sivun muodostus epäonnistui" : "Page generation failed",
-                            ex.Message)
+                            ex.Message);
+
+            // DIAG: näytä LLM‑debug‑sisältö artikkelina
+            builder.SetArticleHtml(BuildLlmDebugHtml(lang, ex));
+
+            builder
                 .AddMenu(lang == "fi" ? "Etusivu" : "Home", "home")
                 .AddMenu(lang == "fi" ? "Yritä uudelleen" : "Try again", "refresh");
 
@@ -264,26 +318,83 @@ namespace MinimalBrowser
             string finalInstruction = BuildFinalInstruction(languageCode);
             client.SetFinalInstructionMessage(finalInstruction);
 
+            // Nollaa debug‑muisti
+            _lastLlmRaw = null;
+            _lastLlmJsonCandidate = null;
+            _lastLlmParseError = null;
+            _lastLlmDebugDumpFile = null;
+
+            // 1) Hae vastaus
             string raw = await client.GetChatCompletionAsync();
             string json = StripCodeFence(raw);
 
+            _lastLlmRaw = raw;
+            _lastLlmJsonCandidate = json;
+
+            // 2) Perusparse
             try
             {
                 using var doc = JsonDocument.Parse(json);
                 return ParseLlmPayload(doc, languageCode);
             }
-            catch
+            catch (Exception ex)
             {
-                // Try to salvage the first {...} block if any
-                int s = json.IndexOf('{');
-                int e = json.LastIndexOf('}');
-                if (s >= 0 && e > s)
+                _lastLlmParseError = ex.Message;
+                System.Diagnostics.Debug.WriteLine("[Portal] Primary JSON parse failed: " + ex.Message);
+
+                // 3) Pelastus 1: laajin alimerkki (ensimmäisestä { viimeiseen })
+                try
                 {
-                    string sub = json.Substring(s, e - s + 1);
-                    using var doc = JsonDocument.Parse(sub);
-                    return ParseLlmPayload(doc, languageCode);
+                    int s = json.IndexOf('{');
+                    int e = json.LastIndexOf('}');
+                    if (s >= 0 && e > s)
+                    {
+                        string sub = json.Substring(s, e - s + 1);
+                        using var doc2 = JsonDocument.Parse(sub);
+                        System.Diagnostics.Debug.WriteLine("[Portal] Parsed using broad substring salvage.");
+                        return ParseLlmPayload(doc2, languageCode);
+                    }
                 }
-                return new LlmPayload(); // fallback handled by caller
+                catch (Exception subEx)
+                {
+                    _lastLlmParseError += " | Broad substring salvage failed: " + subEx.Message;
+                }
+
+                // 4) Pelastus 2: tasapainota ensimmäinen JSON‑olio
+                try
+                {
+                    string firstBalanced = TryExtractFirstJsonObject(json);
+                    if (!string.IsNullOrEmpty(firstBalanced))
+                    {
+                        using var doc3 = JsonDocument.Parse(firstBalanced);
+                        System.Diagnostics.Debug.WriteLine("[Portal] Parsed using balanced‑braces salvage.");
+                        return ParseLlmPayload(doc3, languageCode);
+                    }
+                }
+                catch (Exception balEx)
+                {
+                    _lastLlmParseError += " | Balanced‑braces salvage failed: " + balEx.Message;
+                }
+
+                // 5) Pelastus 3: LLM‑repair (UUSI) — pyydä mallia korjaamaan katkennut/virheellinen JSON
+                try
+                {
+                    var repairedDoc = await TryRepairJsonWithLlmAsync(json, languageCode);
+                    if (repairedDoc != null)
+                    {
+                        System.Diagnostics.Debug.WriteLine("[Portal] Parsed after LLM repair.");
+                        return ParseLlmPayload(repairedDoc, languageCode);
+                    }
+                }
+                catch (Exception repEx)
+                {
+                    _lastLlmParseError += " | LLM repair failed: " + repEx.Message;
+                }
+
+                // 6) Kaikki epäonnistui: dumpataan ja virhesivu
+                await DumpLlmDebugAsync(route, languageCode, raw, json, _lastLlmParseError);
+                throw new InvalidOperationException(
+                    $"LLM JSON parse failed. See debug dump: {_lastLlmDebugDumpFile ?? "(no file)"} | Error: {_lastLlmParseError}");
             }
         }
 
@@ -549,7 +660,274 @@ namespace MinimalBrowser
             var culture = languageCode == "fi" ? new CultureInfo("fi-FI") : new CultureInfo("en-US");
             return culture.TextInfo.ToTitleCase(friendly);
         }
+        private async Task<T> WithTimeout<T>(Task<T> task, int millisecondsTimeout, T fallback)
+        {
+            var completed = await Task.WhenAny(task, Task.Delay(millisecondsTimeout));
+            if (completed == task)
+            {
+                try { return await task; } catch { return fallback; }
+            }
+            return fallback;
+        }
 
+        private string BuildTeaserSystemPrompt(string languageCode)
+        {
+            string langName = languageCode == "fi" ? "Finnish" : "English";
+            var tokens = new Dictionary<string, string>
+            {
+                ["LanguageCode"] = languageCode,
+                ["LanguageName"] = langName
+            };
+            string fromConfig = TemplateRenderer.Render(_settings.OpenAI?.TeaserSystemPrompt ?? "", tokens);
+            if (string.IsNullOrWhiteSpace(fromConfig))
+                fromConfig = "You craft punchy progress teasers for this portal, strictly in " + langName + ".";
+            return fromConfig;
+        }
+
+        private string BuildTeaserFinalInstruction(string languageCode)
+        {
+            string langName = languageCode == "fi" ? "Finnish" : "English";
+            var tokens = new Dictionary<string, string>
+            {
+                ["LanguageCode"] = languageCode,
+                ["LanguageName"] = langName
+            };
+            string fromConfig = TemplateRenderer.Render(_settings.OpenAI?.TeaserFinalInstructionTemplate ?? "", tokens);
+            if (string.IsNullOrWhiteSpace(fromConfig))
+                fromConfig = "Deliver exactly six sentences, each ≤ 22 words, separated by newline only.";
+            return fromConfig;
+        }
+
+        private IChatClient CreateTeaserChatClient(string languageCode)
+        {
+            string model = string.IsNullOrWhiteSpace(_settings.OpenAI?.TeaserModel)
+                ? (string.IsNullOrWhiteSpace(_settings.OpenAI?.PrimaryModel) ? "gpt-4o-mini" : _settings.OpenAI.PrimaryModel)
+                : _settings.OpenAI.TeaserModel;
+            string system = BuildTeaserSystemPrompt(languageCode);
+            return CreateChatClient(model, system);
+        }
+
+        private async Task<string> GetLoadingSnippetAsync(string destinationRoute, string originRoute, string languageCode)
+        {
+            try
+            {
+                var client = CreateTeaserChatClient(languageCode);
+                string langName = languageCode == "fi" ? "Finnish" : "English";
+                var tokens = new Dictionary<string, string>
+                {
+                    ["DestinationRoute"] = destinationRoute,
+                    ["OriginRoute"] = originRoute ?? "",
+                    ["LanguageName"] = langName,
+                    ["LanguageCode"] = languageCode
+                };
+
+                string userPrompt = TemplateRenderer.Render(
+                    _settings.Prompts?.LoadingSnippetTemplate ??
+                    $"Destination route: '{destinationRoute}'\nOrigin route: '{originRoute}'\nLanguage: {langName} ({languageCode})\n\nCompose six teaser sentences, each max 22 words, describing high-stakes solution modules, looming decisions, and playful data takeaways. Tone: urgent yet entertaining. Separate with newline only.",
+                    tokens);
+
+                client.AddUserMessage(userPrompt);
+                client.SetFinalInstructionMessage(BuildTeaserFinalInstruction(languageCode));
+
+                string raw = await client.GetChatCompletionAsync();
+                string text = StripCodeFence(raw);
+                var lines = (text ?? "").Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
+                                        .Select(s => s.Trim()).Where(s => s.Length > 0).ToList();
+                if (lines.Count > 0) return lines[0];
+            }
+            catch { }
+
+            return languageCode == "fi"
+                ? "Kootaan reittejä ja artikkelia – hetki vielä."
+                : "Assembling routes and the article — just a moment.";
+        }
+
+        private static string HtmlEscapeLocal(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            return s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;");
+        }
+
+        private async Task ShowLoadingShellAsync(string route, string languageCode, string quip)
+        {
+            string readableTitle = DeriveTitleFromRoute(route, languageCode);
+            string title = languageCode == "fi" ? "Ladataan sivua" : "Loading page";
+            string subtitle = languageCode == "fi"
+                ? "Luodaan navigaatiokortteja ja artikkelia..."
+                : "Generating navigation cards and the article...";
+
+            string html = $@"<!DOCTYPE html>
+                <html lang=""{languageCode}"">
+                <head>
+                <meta charset=""UTF-8"" />
+                <title>{HtmlEscapeLocal(readableTitle)} — {HtmlEscapeLocal(title)}</title>
+                <meta name=""viewport"" content=""width=device-width, initial-scale=1"" />
+                <script crossorigin src=""https://unpkg.com/react@18/umd/react.development.js""></script>
+                <script crossorigin src=""https://unpkg.com/react-dom@18/umd/react-dom.development.js""></script>
+                <script src=""https://unpkg.com/@emotion/react@11.11.1/dist/emotion-react.umd.min.js""></script>
+                <script src=""https://unpkg.com/@emotion/styled@11.11.0/dist/emotion-styled.umd.min.js""></script>
+                <script src=""https://unpkg.com/@mui/material@5.15.14/umd/material-ui.development.js""></script>
+                <link href=""https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL,GRAD@400,0,0"" rel=""stylesheet"" />
+                <style>
+                  body {{ margin: 0; font-family: Roboto, sans-serif; }}
+                  .content {{ padding: 2rem; }}
+                  .material-symbols-outlined {{
+                    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+                    vertical-align: middle;
+                  }}
+                </style>
+                </head>
+                <body>
+                  <main id=""root""></main>
+                  <script>
+                    const {{ AppBar, Toolbar, Typography, CssBaseline, Container, ThemeProvider, createTheme, Box, LinearProgress, CircularProgress, Grid, Card, CardContent, Skeleton }} = MaterialUI;
+                    const theme = createTheme({{ palette: {{ mode: 'dark', primary: {{ main: '#90caf9' }} }} }});
+                    function App() {{
+                      return (
+                        React.createElement(ThemeProvider, {{ theme }},
+                          React.createElement(CssBaseline, null),
+                          React.createElement(AppBar, {{ position: 'static', color: 'primary' }},
+                            React.createElement(Toolbar, {{ sx: {{ gap: 2 }} }},
+                              React.createElement(Typography, {{ variant: 'h6', sx: {{ flexGrow: 1 }} }}, '{HtmlEscapeLocal(readableTitle)}'),
+                              React.createElement(Box, {{ sx: {{ width: 240 }} }},
+                                React.createElement(LinearProgress, {{ color: 'inherit' }})
+                              )
+                            )
+                          ),
+                          React.createElement(Container, {{ className: 'content' }},
+                            React.createElement(Box, {{ sx: {{ display:'flex', alignItems:'center', gap:2, mb:2 }} }},
+                              React.createElement(CircularProgress, {{ size: 22 }}),
+                              React.createElement(Typography, {{ variant: 'body1' }}, '{HtmlEscapeLocal(subtitle)}')
+                            ),
+                            React.createElement(Typography, {{ variant: 'body2', sx: {{ fontStyle:'italic', color:'#9fbce8', mb: 3 }} }}, '{HtmlEscapeLocal(quip)}'),
+                            React.createElement(Grid, {{ container: true, spacing: 2 }},
+                              Array.from({{ length: 6 }}).map((_, i) =>
+                                React.createElement(Grid, {{ item: true, xs:12, sm:6, md:4, key: i }},
+                                  React.createElement(Card, {{ sx: {{ borderRadius:3, boxShadow:3 }} }},
+                                    React.createElement(CardContent, null,
+                                      React.createElement(Skeleton, {{ variant:'text', width:'70%' }}),
+                                      React.createElement(Skeleton, {{ variant:'text', width:'90%' }}),
+                                      React.createElement(Skeleton, {{ variant:'rectangular', height: 60, sx: {{ mt:1 }} }})
+                                    )
+                                  )
+                                )
+                              )
+                            )
+                          )
+                        )
+                      );
+                    }}
+                    const root = ReactDOM.createRoot(document.getElementById('root'));
+                    root.render(React.createElement(App, null));
+                  </script>
+                </body>
+                </html>";
+
+            string tempPath = Path.GetTempPath();
+            string filePath = Path.Combine(tempPath, $"portal_loading_{Guid.NewGuid():N}.html");
+            await File.WriteAllTextAsync(filePath, html);
+
+            _lastTempFile = filePath;
+            _generatedFiles.Add(filePath);
+
+            _ignoreNextNavigation = true;
+            webView21.CoreWebView2.Navigate("file:///" + filePath.Replace("\\", "/"));
+        }
+        private static string SafeTruncate(string s, int max)
+        {
+            if (string.IsNullOrEmpty(s)) return "(empty)";
+            return s.Length <= max ? s : s.Substring(0, max) + " …[truncated]";
+        }
+
+        private string BuildLlmDebugHtml(string languageCode, Exception ex)
+        {
+            string t1 = languageCode == "fi" ? "Vianmääritys: LLM‑vastauksen JSON‑parsi epäonnistui" : "Diagnostics: LLM response JSON parsing failed";
+            string t2 = languageCode == "fi" ? "Virhe" : "Error";
+            string t3 = languageCode == "fi" ? "Parserin lisätiedot" : "Parser details";
+            string t4 = languageCode == "fi" ? "JSON‑ehdokas (alusta, katkaistu)" : "JSON candidate (start, truncated)";
+            string t5 = languageCode == "fi" ? "Raakavastaus (alusta, katkaistu)" : "Raw response (start, truncated)";
+            string t6 = languageCode == "fi" ? "Debug‑tiedosto tallennettu" : "Debug file saved";
+
+            string err = System.Net.WebUtility.HtmlEncode(ex?.Message ?? "");
+            string perr = System.Net.WebUtility.HtmlEncode(_lastLlmParseError ?? "");
+            string cand = System.Net.WebUtility.HtmlEncode(SafeTruncate(_lastLlmJsonCandidate, 4000));
+            string raw = System.Net.WebUtility.HtmlEncode(SafeTruncate(_lastLlmRaw, 4000));
+            string fileInfo = string.IsNullOrEmpty(_lastLlmDebugDumpFile) ? "" :
+                        $"<p>{t6}: <code>{System.Net.WebUtility.HtmlEncode(_lastLlmDebugDumpFile)}</code></p>";
+
+                    return $@"
+              <h2>{t1}</h2>
+              <p>{t2}: <code>{err}</code></p>
+              {(string.IsNullOrEmpty(perr) ? "" : $"<p>{t3}: <code>{perr}</code></p>")}
+              <h3>{t4}</h3>
+              <pre style=""white-space:pre-wrap"">{cand}</pre>
+              <h3>{t5}</h3>
+              <pre style=""white-space:pre-wrap"">{raw}</pre>
+              {fileInfo}
+            ";
+        }
+
+        private async Task DumpLlmDebugAsync(string route, string lang, string raw, string jsonCandidate, string parseError)
+        {
+            try
+            {
+                string tempPath = Path.GetTempPath();
+                string filePath = Path.Combine(tempPath, $"llm_debug_{DateTime.UtcNow:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}.txt");
+                var sb = new StringBuilder();
+                sb.AppendLine($"Route: {route}");
+                sb.AppendLine($"Lang:  {lang}");
+                sb.AppendLine("---- Parse error ----");
+                sb.AppendLine(parseError ?? "(none)");
+                sb.AppendLine();
+                sb.AppendLine("---- JSON candidate (after StripCodeFence) ----");
+                sb.AppendLine(jsonCandidate ?? "(null)");
+                sb.AppendLine();
+                sb.AppendLine("---- RAW ----");
+                sb.AppendLine(raw ?? "(null)");
+                await File.WriteAllTextAsync(filePath, sb.ToString());
+                _lastLlmDebugDumpFile = filePath;
+                System.Diagnostics.Debug.WriteLine($"[Portal] LLM debug dumped to: {filePath}");
+            }
+            catch
+            {
+                _lastLlmDebugDumpFile = null;
+            }
+        }
+
+        // Yrittää poimia ensimmäisen tasapainoisen JSON-olion tekstistä, ohittaen merkkijonot ja escapet
+        private static string TryExtractFirstJsonObject(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return null;
+            int start = text.IndexOf('{');
+            if (start < 0) return null;
+
+            bool inStr = false;
+            bool esc = false;
+            int depth = 0;
+
+            for (int i = start; i < text.Length; i++)
+            {
+                char c = text[i];
+                if (inStr)
+                {
+                    if (esc) { esc = false; }
+                    else if (c == '\\') { esc = true; }
+                    else if (c == '"') { inStr = false; }
+                }
+                else
+                {
+                    if (c == '"') { inStr = true; }
+                    else if (c == '{') { depth++; }
+                    else if (c == '}')
+                    {
+                        depth--;
+                        if (depth == 0)
+                            return text.Substring(start, i - start + 1);
+                    }
+                }
+            }
+            return null;
+        }
         // Data contracts for LLM payload
         private sealed class LlmPayload
         {
