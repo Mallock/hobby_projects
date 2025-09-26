@@ -5,6 +5,8 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.WinForms;
 
 namespace MinimalBrowser
 {
@@ -294,6 +296,7 @@ namespace MinimalBrowser
             public DoubleBufferedFlow()
             {
                 DoubleBuffered = true;
+                AutoScroll = true;
             }
         }
     }
