@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net.Http.Headers;
 using System.Text;
@@ -72,7 +73,7 @@ namespace TransformerNavigator
             => _finalInstructionMessage = instruction;
 
         private static string Truncate(string s, int max) =>
-    string.IsNullOrEmpty(s) ? s : (s.Length <= max ? s : s.Substring(0, max));
+            string.IsNullOrEmpty(s) ? s : (s.Length <= max ? s : s.Substring(0, max));
 
         private static string ExtractServerErrorMessage(string jsonBody)
         {
@@ -261,6 +262,208 @@ namespace TransformerNavigator
             throw new ChatClientException("Chat completion failed after multiple attempts.", lastException);
         }
 
+        // NEW: Streaming support (SSE). Emits deltas via onDelta as they arrive and returns the full reply at the end.
+        // This method does not auto-retry after streaming has started to avoid duplicating partial output to the caller.
+        public async Task<string> GetChatCompletionStreamingAsync(Action<string> onDelta, CancellationToken ct = default)
+        {
+            var messagesToSend = new List<Message>(_conversationHistory);
+            if (!string.IsNullOrWhiteSpace(_finalInstructionMessage))
+                messagesToSend.Add(new Message { role = "user", content = _finalInstructionMessage });
+
+            double temp = _temperature ?? 0.7;
+            int? nPredict = _maxTokens ?? 2048;
+
+            var request = new ChatCompletionRequest
+            {
+                model = _model,
+                messages = messagesToSend,
+                temperature = temp,
+                max_tokens = _maxTokens,
+                n_predict = nPredict,
+                top_p = 0.95,
+                seed = 42,
+                presence_penalty = 0.0,
+                frequency_penalty = 0.0,
+                //response_format = new { type = "json_object" },
+                stream = true
+            };
+
+            var json = JsonSerializer.Serialize(request, JsonOptions);
+            using var httpReq = new HttpRequestMessage(HttpMethod.Post, _endpoint)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            };
+            httpReq.Headers.Accept.Clear();
+            httpReq.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+
+            try
+            {
+                using var response = await _http.SendAsync(httpReq, HttpCompletionOption.ResponseHeadersRead, ct);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    var respJson = await response.Content.ReadAsStringAsync(ct);
+                    var code = (int)response.StatusCode;
+                    var message = ExtractServerErrorMessage(respJson) ?? response.ReasonPhrase ?? "Unknown error";
+                    throw new ChatClientException($"LLM HTTP {code} {response.StatusCode}: {message}")
+                    {
+                        StatusCode = code,
+                        ResponseBody = Truncate(respJson, 4000)
+                    };
+                }
+
+                var sb = new StringBuilder();
+                bool sawAnyDelta = false;
+
+                using var stream = await response.Content.ReadAsStreamAsync(ct);
+                using var reader = new StreamReader(stream, Encoding.UTF8);
+
+                var dataBuffer = new StringBuilder();
+
+                while (!reader.EndOfStream)
+                {
+                    ct.ThrowIfCancellationRequested();
+
+                    var line = await reader.ReadLineAsync();
+                    if (line == null) break;
+
+                    // Blank line: end of event
+                    if (line.Length == 0)
+                    {
+                        if (dataBuffer.Length > 0)
+                        {
+                            var eventPayload = dataBuffer.ToString().Trim();
+                            dataBuffer.Clear();
+
+                            if (eventPayload == "[DONE]")
+                                break;
+
+                            ProcessChunk(eventPayload, sb, onDelta, ref sawAnyDelta);
+                        }
+                        continue;
+                    }
+
+                    // Comments/keepalive
+                    if (line.StartsWith(":", StringComparison.Ordinal))
+                        continue;
+
+                    // data: lines (may be multiple per event)
+                    if (line.StartsWith("data:", StringComparison.Ordinal))
+                    {
+                        var s = line.Length > 5 ? line.Substring(5) : string.Empty;
+                        if (s.StartsWith(" ", StringComparison.Ordinal))
+                            s = s.Substring(1);
+
+                        if (s == "[DONE]")
+                        {
+                            // flush any buffered JSON before closing
+                            if (dataBuffer.Length > 0)
+                            {
+                                var eventPayloadInline = dataBuffer.ToString().Trim();
+                                dataBuffer.Clear();
+
+                                if (eventPayloadInline.Length > 0 && eventPayloadInline != "[DONE]")
+                                {
+                                    ProcessChunk(eventPayloadInline, sb, onDelta, ref sawAnyDelta);
+                                }
+                            }
+                            break;
+                        }
+
+                        dataBuffer.AppendLine(s);
+                    }
+                }
+
+                var fullReply = sb.ToString();
+                if (!sawAnyDelta && string.IsNullOrWhiteSpace(fullReply))
+                    throw new ChatClientException("LLM returned an empty streaming response.");
+
+                AddAssistantMessage(fullReply);
+                return fullReply;
+            }
+            catch (OperationCanceledException oce) when (ct.IsCancellationRequested)
+            {
+                throw new ChatClientException("Streaming chat completion was canceled by caller.", oce);
+            }
+            catch (TaskCanceledException tce)
+            {
+                throw new ChatClientException("Streaming chat completion timed out.", tce);
+            }
+            catch (HttpRequestException hre)
+            {
+                throw new ChatClientException("Network/HTTP error while opening/reading streaming connection to LLM endpoint.", hre);
+            }
+            catch (ChatClientException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                throw new ChatClientException("Unexpected error while reading streaming response.", ex);
+            }
+        }
+        private void ProcessChunk(string jsonChunk, StringBuilder sb, Action<string> onDelta, ref bool sawAnyDelta)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(jsonChunk);
+                var root = doc.RootElement;
+
+                // Some servers wrap errors in data events
+                if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("error", out var errEl))
+                {
+                    var errMsg =
+                        (errEl.ValueKind == JsonValueKind.Object && errEl.TryGetProperty("message", out var m)) ? m.GetString() :
+                        (errEl.ValueKind == JsonValueKind.String) ? errEl.GetString() :
+                        "Unknown streaming error";
+
+                    throw new ChatClientException($"LLM streaming error: {errMsg}")
+                    {
+                        ResponseBody = Truncate(jsonChunk, 4000)
+                    };
+                }
+
+                if (root.TryGetProperty("choices", out var choicesEl) &&
+                    choicesEl.ValueKind == JsonValueKind.Array &&
+                    choicesEl.GetArrayLength() > 0)
+                {
+                    var choice0 = choicesEl[0];
+                    string deltaText = null;
+
+                    // OpenAI-style: choices[].delta.content
+                    if (choice0.TryGetProperty("delta", out var deltaEl) && deltaEl.ValueKind == JsonValueKind.Object)
+                    {
+                        if (deltaEl.TryGetProperty("content", out var contentEl) && contentEl.ValueKind == JsonValueKind.String)
+                            deltaText = contentEl.GetString();
+                    }
+
+                    // Some llama.cpp variants: choices[].message.content
+                    if (deltaText == null &&
+                        choice0.TryGetProperty("message", out var msgEl) &&
+                        msgEl.ValueKind == JsonValueKind.Object &&
+                        msgEl.TryGetProperty("content", out var content2El) &&
+                        content2El.ValueKind == JsonValueKind.String)
+                    {
+                        deltaText = content2El.GetString();
+                    }
+
+                    if (!string.IsNullOrEmpty(deltaText))
+                    {
+                        sawAnyDelta = true;
+                        sb.Append(deltaText);
+                        try { onDelta?.Invoke(deltaText); } catch { /* swallow UI callback errors */ }
+                    }
+                }
+            }
+            catch (ChatClientException) { throw; }
+            catch (Exception jex)
+            {
+                throw new ChatClientException("Failed to parse streaming chunk JSON.", jex)
+                {
+                    ResponseBody = Truncate(jsonChunk, 1000)
+                };
+            }
+        }
         private void TrimHistory()
         {
             int nonSystemCount = _conversationHistory.Count(m => m.role != "system");
@@ -332,6 +535,7 @@ namespace TransformerNavigator
             public string content { get; set; }
         }
     }
+
     public sealed class ChatClientException : Exception
     {
         public int? StatusCode { get; init; }
