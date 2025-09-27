@@ -1,3 +1,5 @@
+using MinimalBrowser.UI;
+
 namespace MinimalBrowser
 {
     internal static class Program

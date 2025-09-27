@@ -26,11 +26,11 @@ namespace TransformerNavigator
             try
             {
                 // Use last few non-system turns
-                var recent = history.Where(m => m.role == "user" || m.role == "assistant").ToList();
+                var recent = history.Where(m => m.role == "assistant").ToList();
                 if (recent.Count == 0)
                     return new FollowUpSuggestions();
 
-                var take = Math.Min(4, recent.Count);
+                var take = Math.Min(2, recent.Count);
                 var lastTurns = recent.Skip(Math.Max(0, recent.Count - take)).ToList();
 
                 var sysPrompt = new ChatMessage
@@ -38,35 +38,34 @@ namespace TransformerNavigator
                     role = "system",
                     content =
                         "You are a follow-up question generator. " +
-                        "Given the latest exchange(s) between the user and assistant, suggest exactly 4 short follow-up questions. " +
+                        "Given the latest exchange(s) between the user and assistant, suggest exactly 4 short follow-up questions for the user to get best responses from the assistant. " +
                         "Rules: " +
                         "1) Return ONLY a JSON array of 4 strings. " +
                         "2) No explanations, no prose, no code fences. " +
                         "3) Keep each question under 120 characters. " +
-                        "Example: [\"Can you explain X?\",\"What about Y?\",\"How do I Z?\",\"Could you compare A and B?\"]"
+                        "Example: [\"Can you explain X to me?\",\"What about Y?\",\"How do I Z?\",\"Could you compare A and B?\",\"How about X?\"]"
                 };
 
                 var reqHistory = new List<ChatMessage> { sysPrompt };
                 reqHistory.AddRange(lastTurns);
 
                 // short timeout to avoid blocking main flow
-                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                timeoutCts.CancelAfter(TimeSpan.FromSeconds(6));
 
                 var sb = new StringBuilder();
                 await _client.StreamChatAsync(
                     reqHistory,
                     delta => sb.Append(delta),
-                    temperature: 0.2,
+                    temperature: 0.8,
                     maxTokens: null,
-                    ct: timeoutCts.Token);
+                    ct: default);
 
                 var raw = sb.ToString();
                 var questions = TryExtractStringArray(raw);
                 return new FollowUpSuggestions { Questions = questions };
             }
-            catch
+            catch(Exception ex)
             {
+                Console.WriteLine("Follow-up suggestion generation failed: " + ex.Message);
                 // Never throw to caller
                 return new FollowUpSuggestions();
             }
