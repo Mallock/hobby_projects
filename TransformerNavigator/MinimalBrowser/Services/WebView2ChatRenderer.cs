@@ -90,5 +90,12 @@ namespace MinimalBrowser.Services
             }
             return tcs.Task;
         }
+        public Task AppendAssistantImageAsync(string dataUrl, string caption = null)
+        {
+            // Build markdown: the image + optional caption text right after it
+            var md = $"![image]({dataUrl})" + (string.IsNullOrWhiteSpace(caption) ? "" : $"\n\n{caption}");
+            string safe = Util.TextEscaping.EscapeJs(md);
+            return ExecScriptOnUiAsync($"appendMessage('assistant', `{safe}`);");
+        }
     }
 }

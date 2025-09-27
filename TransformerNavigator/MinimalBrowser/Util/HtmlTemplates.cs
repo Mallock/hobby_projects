@@ -108,7 +108,13 @@ background: var(--bg);
 color: var(--fg);
 font-family: var(--font);
 }}
-
+/* Chat images */
+.message img {{max - width: 100%;
+height: auto;
+border-radius: 8px;
+box-shadow: 0 2px 10px #0004;
+display: block;
+}}
 #topbar {{
 position: sticky;
 top: 0; left: 0; right: 0;

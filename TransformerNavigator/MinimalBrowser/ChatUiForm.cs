@@ -1,12 +1,11 @@
 ﻿using Microsoft.Web.WebView2.WinForms;
 using MinimalBrowser.Util;
 using System;
-using System.Collections.Generic;
 using System.Drawing;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using TransformerNavigator;
+using TransformerNavigator.Services;
 
 namespace MinimalBrowser.UI
 {
@@ -18,6 +17,12 @@ namespace MinimalBrowser.UI
         private readonly Button _stopBtn;
         private readonly Button _clearBtn;
         private readonly Button _captureBtn;
+
+        // NEW: image button + progress
+        private readonly Button _imgBtn;
+        private readonly ProgressBar _imgProgress;
+        private CancellationTokenSource _imgCts;
+
         private readonly Label _status;
         private readonly FlowLayoutPanel _followupPanel;
 
@@ -26,7 +31,10 @@ namespace MinimalBrowser.UI
         private readonly Services.ScreenCaptureService _screenCapture;
         private readonly Services.OcrService _ocr;
 
-        public ChatUiForm(string model = null, string baseUrl = null, string apiKey = null)
+        // NEW: image generator service
+        private readonly Services.IImageGenerator _imageGen;
+
+        public ChatUiForm(string model = null, string baseUrl = null, string apiKey = null, Services.IImageGenerator imageGen = null)
         {
             Text = "Chat";
             StartPosition = FormStartPosition.CenterScreen;
@@ -58,6 +66,24 @@ namespace MinimalBrowser.UI
 
             _screenCapture = new Services.ScreenCaptureService();
             _ocr = new Services.OcrService();
+
+            // NEW: default image generator (uses your sd.exe example)
+            // Change ToolPath/WorkingDirectory/Arguments if your setup differs.
+            _imageGen = imageGen ?? new ProcessImageGenerator(
+                toolPath: @"C:\hobby_work\stable-diffusion.cpp\build\bin\Release\sd.exe",
+                argumentsTemplate: "-m stable-diffusion-v2-1-Q8_0.gguf -p {prompt} -o {out}",
+                outputDirectory: System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
+                    "MinimalBrowser",
+                    "images"
+                ),
+                workingDirectory: @"C:\hobby_work\stable-diffusion.cpp\build\bin\Release",
+                outputExtension: ".png"
+            )
+            {
+                Timeout = TimeSpan.FromMinutes(10),
+                FallbackEstimate = TimeSpan.FromMinutes(2)
+            };
 
             var root = new TableLayoutPanel
             {
@@ -95,7 +121,7 @@ namespace MinimalBrowser.UI
                 BackColor = Color.FromArgb(0x0b, 0x0f, 0x1a),
                 Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top | AnchorStyles.Bottom,
                 Location = new Point(8, 8),
-                Size = new Size(Width - 330, 80)
+                Size = new Size(Width - 420, 80) // slightly narrower to fit more buttons
             };
             composer.Controls.Add(_input);
 
@@ -110,6 +136,21 @@ namespace MinimalBrowser.UI
 
             _captureBtn = MakeButton("Capture", new Point(_clearBtn.Right + 8, 8), async (s, e) => await CaptureAndSendAsync());
             composer.Controls.Add(_captureBtn);
+
+            // NEW: "Generate Image" button
+            _imgBtn = MakeButton("Generate Image", new Point(_captureBtn.Right + 8, 8), async (s, e) => await GenerateImageAsync());
+            composer.Controls.Add(_imgBtn);
+
+            // NEW: Progress bar for image generation (starts hidden)
+            _imgProgress = new ProgressBar
+            {
+                Style = ProgressBarStyle.Marquee,
+                Size = new Size(180, 14),
+                Anchor = AnchorStyles.Top | AnchorStyles.Right,
+                Location = new Point(_imgBtn.Right + 12, 16),
+                Visible = false
+            };
+            composer.Controls.Add(_imgProgress);
 
             _status = new Label
             {
@@ -137,11 +178,14 @@ namespace MinimalBrowser.UI
 
             composer.Resize += (_, __) =>
             {
-                _input.Width = composer.ClientSize.Width - 8 - 8 - 300;
+                _input.Width = composer.ClientSize.Width - 8 - 8 - 420;
                 _sendBtn.Left = _input.Right + 8;
                 _stopBtn.Left = _input.Right + 8;
                 _clearBtn.Left = _sendBtn.Right + 8;
                 _captureBtn.Left = _clearBtn.Right + 8;
+                _imgBtn.Left = _captureBtn.Right + 8;
+
+                _imgProgress.Left = _imgBtn.Right + 12;
             };
 
             _input.KeyDown += (s, e) =>
@@ -179,7 +223,7 @@ namespace MinimalBrowser.UI
                 BackColor = Color.FromArgb(0x18, 0x20, 0x3a),
                 FlatStyle = FlatStyle.Flat,
                 Location = location,
-                Size = new Size(88, 32),
+                Size = new Size(110, 32),
                 Anchor = AnchorStyles.Top | AnchorStyles.Right,
                 Visible = visible
             };
@@ -210,7 +254,7 @@ namespace MinimalBrowser.UI
             try
             {
                 Hide();
-                await Task.Delay(200); // small delay for smooth UI
+                await Task.Delay(200);
 
                 var region = _screenCapture.SelectRegion(this);
                 Show();
@@ -311,6 +355,75 @@ namespace MinimalBrowser.UI
         {
             _input.Text = question;
             await SendFromInputAsync();
+        }
+
+        // NEW: Generate Image handler
+        private async Task GenerateImageAsync()
+        {
+            try
+            {
+                var prompt = (_input.Text ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(prompt))
+                {
+                    MessageBox.Show("Please enter an image prompt in the input box first.");
+                    return;
+                }
+
+                await _renderer.AppendUserMessageAsync($"[Image request]\n{prompt}");
+
+                _imgBtn.Enabled = false;
+                _imgProgress.Visible = true;
+                _imgProgress.Style = ProgressBarStyle.Marquee;
+                _status.Text = "Generating image...";
+
+                _imgCts?.Dispose();
+                _imgCts = new CancellationTokenSource();
+
+                var progress = new Progress<double>(p =>
+                {
+                    this.UI(() =>
+                    {
+                        if (_imgProgress.Style != ProgressBarStyle.Continuous)
+                        {
+                            _imgProgress.Style = ProgressBarStyle.Continuous;
+                            _imgProgress.Minimum = 0;
+                            _imgProgress.Maximum = 100;
+                        }
+                        int val = Math.Max(0, Math.Min(100, (int)Math.Round(p * 100)));
+                        _imgProgress.Value = val == 0 ? 1 : val; // avoid Value must be >= Minimum
+                        _status.Text = $"Generating image... {val}%";
+                    });
+                });
+
+                var imgBytes = await _imageGen.GenerateAsync(prompt, progress, _imgCts.Token);
+                if (imgBytes == null || imgBytes.Length == 0)
+                {
+                    _status.Text = "Image generation returned no data.";
+                    return;
+                }
+
+                var dataUrl = "data:image/png;base64," + Convert.ToBase64String(imgBytes);
+                await _renderer.AppendAssistantImageAsync(dataUrl, $"_{prompt}_");
+                _status.Text = "Image ready.";
+            }
+            catch (OperationCanceledException)
+            {
+                _status.Text = "Image generation canceled.";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Image generation failed: {ex.Message}");
+                _status.Text = "Image generation failed.";
+            }
+            finally
+            {
+                this.UI(() =>
+                {
+                    _imgProgress.Visible = false;
+                    _imgBtn.Enabled = true;
+                    _imgProgress.Style = ProgressBarStyle.Marquee;
+                });
+            }
         }
     }
 }
