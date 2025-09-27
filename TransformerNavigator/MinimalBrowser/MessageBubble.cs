@@ -69,13 +69,6 @@ internal sealed class MessageBubble : Panel
                     Height = h + Padding.Vertical + 4;
                 }
             }
-            else if (msg.StartsWith("w:", StringComparison.Ordinal))
-            {
-                if (int.TryParse(msg.Substring(2), out int dy))
-                {
-                    ScrollParentBy(dy);
-                }
-            }
         };
 
         core.NavigationCompleted += async (_, __) =>
@@ -91,41 +84,6 @@ internal sealed class MessageBubble : Panel
     {
         string js = "window.setMarkdown(`" + EscapeJs(_pendingMarkdown) + "`);";
         await _web.CoreWebView2.ExecuteScriptAsync(js);
-    }
-
-    private void ScrollParentBy(int deltaY)
-    {
-        var sc = FindScrollableContainer();
-        if (sc == null) return;
-
-        var vs = sc.VerticalScroll;
-        int lines = SystemInformation.MouseWheelScrollLines;
-        if (lines <= 0) lines = 3;
-        int step = lines * 16;
-
-        int newVal = vs.Value + Math.Sign(deltaY) * step;
-        if (newVal < vs.Minimum) newVal = vs.Minimum;
-        int max = Math.Max(vs.Minimum, vs.Maximum - vs.LargeChange + 1);
-        if (newVal > max) newVal = max;
-
-        try
-        {
-            vs.Value = newVal;
-            sc.Invalidate();
-        }
-        catch { }
-    }
-
-    private ScrollableControl FindScrollableContainer()
-    {
-        Control c = Parent;
-        while (c != null)
-        {
-            if (c is ScrollableControl sc && sc.AutoScroll)
-                return sc;
-            c = c.Parent;
-        }
-        return null;
     }
 
     private void FallbackToRtb()
@@ -190,14 +148,6 @@ if (window.chrome && window.chrome.webview) {
 window.chrome.webview.postMessage('h:' + h);
 }
 }
-
-document.addEventListener('wheel', function(e) {
-try {
-if (window.chrome && window.chrome.webview) {
-window.chrome.webview.postMessage('w:' + (e.deltaY || 0));
-}
-} catch {}
-}, { passive: true });
 
 window.setMarkdown = function(md) {
 try {
