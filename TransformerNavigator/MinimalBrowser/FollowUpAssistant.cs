@@ -26,7 +26,7 @@ namespace TransformerNavigator
             try
             {
                 // Use last few non-system turns
-                var recent = history.Where(m => m.role == "assistant").ToList();
+                var recent = history.Where(m => m.role == "user" || m.role == "assistant").ToList();
                 if (recent.Count == 0)
                     return new FollowUpSuggestions();
 
@@ -48,7 +48,11 @@ namespace TransformerNavigator
 
                 var reqHistory = new List<ChatMessage> { sysPrompt };
                 reqHistory.AddRange(lastTurns);
-
+                reqHistory.Add(new ChatMessage
+                {
+                    role = "user",
+                    content = "Now tell me what questions I should ask next from the assistant."
+                });
                 // short timeout to avoid blocking main flow
 
                 var sb = new StringBuilder();
@@ -56,7 +60,7 @@ namespace TransformerNavigator
                     reqHistory,
                     delta => sb.Append(delta),
                     temperature: 0.8,
-                    maxTokens: null,
+                    maxTokens: 1000,
                     ct: default);
 
                 var raw = sb.ToString();
