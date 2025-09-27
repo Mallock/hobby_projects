@@ -59,12 +59,18 @@ namespace MinimalBrowser
             Controls.Add(root);
 
             // chat webview
+            var webHost = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.FromArgb(0x0f, 0x12, 0x20)
+            };
+            root.Controls.Add(webHost, 0, 0);
             _chatWeb = new WebView2
             {
                 Dock = DockStyle.Fill,
                 DefaultBackgroundColor = Color.FromArgb(0x0f, 0x12, 0x20)
             };
-            root.Controls.Add(_chatWeb, 0, 0);
+            webHost.Controls.Add(_chatWeb);
 
             _chatWeb.CoreWebView2InitializationCompleted += (_, e) =>
             {
@@ -178,18 +184,17 @@ namespace MinimalBrowser
             composer.Controls.Add(_status);
             followupPanel = new FlowLayoutPanel
             {
+                Dock = DockStyle.Bottom,
+                Height = 56,                 // adjust to taste
                 AutoSize = false,
                 WrapContents = true,
                 FlowDirection = FlowDirection.LeftToRight,
-                BackColor = Color.Transparent,
+                BackColor = Color.FromArgb(0x14, 0x19, 0x36), // subtle bar color
                 Margin = new Padding(0),
-                Padding = new Padding(0),
-                Location = new Point(_input.Left, _input.Bottom + 8), // temporary, we'll position again below
-                Size = new Size(Width - 330, 40),                     // enough for a couple rows
-                Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
+                Padding = new Padding(10, 8, 10, 8),
                 Visible = false
             };
-            composer.Controls.Add(followupPanel);
+            webHost.Controls.Add(followupPanel);
             // resize logic
             composer.Resize += (_, __) =>
             {
@@ -198,13 +203,6 @@ namespace MinimalBrowser
                 _stopBtn.Left = _input.Right + 8;
                 _clearBtn.Left = _sendBtn.Right + 8;
                 _captureBtn.Left = _clearBtn.Right + 8;
-
-                // Place followups above the status label, spanning the width of the input
-                followupPanel.Left = _input.Left;
-                followupPanel.Width = _input.Width;
-                // keep a fixed height; adjust if needed
-                followupPanel.Height = 40;
-                followupPanel.Top = _status.Top - followupPanel.Height - 6;
             };
 
             // enter key send
