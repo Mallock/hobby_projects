@@ -295,7 +295,7 @@ namespace MinimalBrowser.UI
                 var caption = (_input.Text ?? string.Empty).Trim();
 
                 Hide();
-                await Task.Delay(150);
+                await Task.Delay(400);
 
                 Rectangle? rect = null;
                 using (var selector = new ScreenRegionSelector())
@@ -304,9 +304,7 @@ namespace MinimalBrowser.UI
                     if (dr == DialogResult.OK && selector.SelectedRegion.HasValue)
                         rect = selector.SelectedRegion.Value;
                 }
-
-                Show();
-                Activate();
+                
 
                 if (rect == null) return;
 
@@ -315,7 +313,9 @@ namespace MinimalBrowser.UI
                 {
                     g.CopyFromScreen(rect.Value.Location, Point.Empty, rect.Value.Size, CopyPixelOperation.SourceCopy);
                 }
-
+                await Task.Delay(300);
+                Show();
+                Activate();
                 using var resized = ResizeForUploadIfNeeded(bmp, maxLongSide: 1280);
                 var dataUrl = ToDataUrl(resized, preferJpeg: true);
 
