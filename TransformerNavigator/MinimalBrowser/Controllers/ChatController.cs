@@ -189,6 +189,71 @@ namespace MinimalBrowser.Controllers
             }
         }
 
+        public async Task SendImageAsync(string captionOrPrompt, string dataUrl)
+        {
+            var caption = (captionOrPrompt ?? string.Empty).Trim();
+
+            Stop();
+            _assistantBuf.Clear();
+
+            // Show what the user sent (caption + image) in the chat UI.
+            if (!string.IsNullOrWhiteSpace(caption))
+                await _renderer.AppendUserMessageAsync(caption);
+
+            // If your renderer shows Markdown images, this is enough to display the image.
+            // Otherwise, you can add a dedicated "AppendUserImageAsync" on the renderer.
+            var markdownImg = $"![captured image]({dataUrl})";
+            await _renderer.AppendUserMessageAsync(markdownImg);
+
+            // Build the multimodal user message to send to the model
+            var parts = new List<ContentPart>();
+            if (!string.IsNullOrWhiteSpace(caption))
+                parts.Add(new ContentPart { type = "text", text = caption });
+
+            parts.Add(new ContentPart
+            {
+                type = "image_url",
+                image_url = new ImageUrl { url = dataUrl }
+            });
+
+            _history.Add(new ChatMessage
+            {
+                role = "user",
+                content = parts
+            });
+
+            OnBusyChanged(true, "Generating…");
+            _cts = new CancellationTokenSource();
+
+            try
+            {
+                var full = await _chat.StreamAsync(
+                    _history,
+                    onDelta: delta => AppendAssistantDelta(delta),
+                    temperature: 0.8,
+                    maxTokens: null,
+                    nPredict: null,
+                    ct: _cts.Token);
+
+                if (string.IsNullOrEmpty(full))
+                    AppendAssistantDelta("[no content]");
+
+                _history.Add(new ChatMessage { role = "assistant", content = _assistantBuf.ToString() });
+
+                _ = TryShowFollowUpsAsync();
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                AppendAssistantDelta("\n[error] " + ex.Message);
+            }
+            finally
+            {
+                await _renderer.FinishAssistantMessageAsync();
+                OnBusyChanged(false, "Ready");
+            }
+        }
+
         public void Stop()
         {
             try { _cts?.Cancel(); } catch { }

@@ -13,8 +13,20 @@ namespace MinimalBrowser
 {
     public sealed class ChatMessage
     {
-        public string role { get; set; }     // "system" | "user" | "assistant"
-        public string content { get; set; }
+        public string role { get; set; } // "system" | "user" | "assistant"
+        public object content { get; set; } // string OR List<ContentPart>
+    }
+
+    public sealed class ContentPart
+    {
+        public string type { get; set; } // "text" | "image_url"
+        public string text { get; set; } // when type == "text"
+        public ImageUrl image_url { get; set; } // when type == "image_url"
+    }
+
+    public sealed class ImageUrl
+    {
+        public string url { get; set; } // http(s) URL or data URL (base64)
     }
 
     public sealed class LlamaSseClient : IDisposable

@@ -2,9 +2,12 @@
 using MinimalBrowser.Util;
 using System;
 using System.Drawing;
+using System.Drawing.Imaging;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using TransformerNavigator;
 using TransformerNavigator.Services;
 
 namespace MinimalBrowser.UI
@@ -13,25 +16,27 @@ namespace MinimalBrowser.UI
     {
         private readonly WebView2 _chatWeb;
         private readonly TextBox _input;
+
         private readonly Button _sendBtn;
         private readonly Button _stopBtn;
         private readonly Button _clearBtn;
         private readonly Button _captureBtn;
-
-        // NEW: image button + progress
+        private readonly Button _captureAreaBtn;
         private readonly Button _imgBtn;
+
         private readonly ProgressBar _imgProgress;
         private CancellationTokenSource _imgCts;
 
         private readonly Label _status;
         private readonly FlowLayoutPanel _followupPanel;
 
+        private readonly FlowLayoutPanel _buttonBar;
+
         private readonly Controllers.ChatController _controller;
         private readonly Services.WebView2ChatRenderer _renderer;
         private readonly Services.ScreenCaptureService _screenCapture;
         private readonly Services.OcrService _ocr;
 
-        // NEW: image generator service
         private readonly Services.IImageGenerator _imageGen;
 
         public ChatUiForm(string model = null, string baseUrl = null, string apiKey = null, Services.IImageGenerator imageGen = null)
@@ -40,9 +45,7 @@ namespace MinimalBrowser.UI
             StartPosition = FormStartPosition.CenterScreen;
             Width = 980;
             Height = 720;
-            TopMost = true;
 
-            // Services
             var chatService = new Services.LlamaChatService(
                 model ?? (Environment.GetEnvironmentVariable("LLAMA_MODEL") ?? "gpt"),
                 baseUrl ?? Environment.GetEnvironmentVariable("LLAMA_BASE_URL"),
@@ -67,11 +70,9 @@ namespace MinimalBrowser.UI
             _screenCapture = new Services.ScreenCaptureService();
             _ocr = new Services.OcrService();
 
-            // NEW: default image generator (uses your sd.exe example)
-            // Change ToolPath/WorkingDirectory/Arguments if your setup differs.
             _imageGen = imageGen ?? new ProcessImageGenerator(
                 toolPath: @"C:\hobby_work\stable-diffusion.cpp\build\bin\Release\sd.exe",
-                argumentsTemplate: "-m stable-diffusion-v2-1-Q8_0.gguf -p {prompt} -o {out}",
+                argumentsTemplate: "-m stable-diffusion-xl-base-1.0-FP16.gguf -p {prompt}  -n \"low quality, worst quality, blurry, jpeg artifacts, watermark, text, logo\" -o {out} -W 512 -H 512 --steps 24 --cfg-scale 6.5 --sampling-method dpm++2m --scheduler karras -s 1 -t 8 --vae-tiling -v",
                 outputDirectory: System.IO.Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
                     "MinimalBrowser",
@@ -82,7 +83,7 @@ namespace MinimalBrowser.UI
             )
             {
                 Timeout = TimeSpan.FromMinutes(10),
-                FallbackEstimate = TimeSpan.FromMinutes(2)
+                FallbackEstimate = TimeSpan.FromMinutes(4)
             };
 
             var root = new TableLayoutPanel
@@ -92,7 +93,7 @@ namespace MinimalBrowser.UI
                 ColumnCount = 1
             };
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 120));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 150));
             Controls.Add(root);
 
             var webHost = new Panel
@@ -103,13 +104,17 @@ namespace MinimalBrowser.UI
             root.Controls.Add(webHost, 0, 0);
             webHost.Controls.Add(_chatWeb);
 
-            var composer = new Panel
+            var composerGrid = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 BackColor = Color.FromArgb(0x0f, 0x12, 0x20),
-                Padding = new Padding(8)
+                Padding = new Padding(8),
+                ColumnCount = 1,
+                RowCount = 2
             };
-            root.Controls.Add(composer, 0, 1);
+            composerGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 90));
+            composerGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            root.Controls.Add(composerGrid, 0, 1);
 
             _input = new TextBox
             {
@@ -119,74 +124,66 @@ namespace MinimalBrowser.UI
                 Font = new Font("Segoe UI", 10f),
                 ForeColor = Color.FromArgb(0xdb, 0xe8, 0xff),
                 BackColor = Color.FromArgb(0x0b, 0x0f, 0x1a),
-                Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top | AnchorStyles.Bottom,
-                Location = new Point(8, 8),
-                Size = new Size(Width - 420, 80) // slightly narrower to fit more buttons
+                Dock = DockStyle.Fill
             };
-            composer.Controls.Add(_input);
+            composerGrid.Controls.Add(_input, 0, 0);
 
-            _sendBtn = MakeButton("Send", new Point(_input.Right + 8, 8), (s, e) => _ = SendFromInputAsync());
-            composer.Controls.Add(_sendBtn);
-
-            _stopBtn = MakeButton("Stop", new Point(_input.Right + 8, 48), (s, e) => _controller.Stop(), visible: false);
-            composer.Controls.Add(_stopBtn);
-
-            _clearBtn = MakeButton("Clear", new Point(_sendBtn.Right + 8, 8), (s, e) => _ = ClearChatAsync());
-            composer.Controls.Add(_clearBtn);
-
-            _captureBtn = MakeButton("Capture", new Point(_clearBtn.Right + 8, 8), async (s, e) => await CaptureAndSendAsync());
-            composer.Controls.Add(_captureBtn);
-
-            // NEW: "Generate Image" button
-            _imgBtn = MakeButton("Generate Image", new Point(_captureBtn.Right + 8, 8), async (s, e) => await GenerateImageAsync());
-            composer.Controls.Add(_imgBtn);
-
-            // NEW: Progress bar for image generation (starts hidden)
-            _imgProgress = new ProgressBar
+            // Bottom bar with 2 columns: [status | buttons]
+            var bottomBar = new TableLayoutPanel
             {
-                Style = ProgressBarStyle.Marquee,
-                Size = new Size(180, 14),
-                Anchor = AnchorStyles.Top | AnchorStyles.Right,
-                Location = new Point(_imgBtn.Right + 12, 16),
-                Visible = false
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 1,
+                BackColor = Color.FromArgb(0x0f, 0x12, 0x20)
             };
-            composer.Controls.Add(_imgProgress);
+            bottomBar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));   // status
+            bottomBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); // buttons fill remaining width
+            composerGrid.Controls.Add(bottomBar, 0, 1);
 
             _status = new Label
             {
                 Text = "Ready",
                 AutoSize = true,
                 ForeColor = Color.FromArgb(0x9f, 0xbc, 0xe8),
-                Location = new Point(_input.Left, _input.Bottom + 8),
-                Anchor = AnchorStyles.Left | AnchorStyles.Bottom
+                Anchor = AnchorStyles.Left,
+                Margin = new Padding(0, 6, 12, 0)
             };
-            composer.Controls.Add(_status);
+            bottomBar.Controls.Add(_status, 0, 0);
 
-            _followupPanel = new FlowLayoutPanel
+            _buttonBar = new FlowLayoutPanel
             {
-                Dock = DockStyle.Bottom,
-                Height = 56,
-                AutoSize = false,
+                Dock = DockStyle.Fill,
+                AutoSize = false,                // important: let it shrink/grow with the column
                 WrapContents = true,
-                FlowDirection = FlowDirection.LeftToRight,
-                BackColor = Color.FromArgb(0x14, 0x19, 0x36),
-                Margin = new Padding(0),
-                Padding = new Padding(10, 8, 10, 8),
-                Visible = false
+                FlowDirection = FlowDirection.RightToLeft, // right align
+                Padding = new Padding(0),
+                Margin = new Padding(0)
             };
-            webHost.Controls.Add(_followupPanel);
+            bottomBar.Controls.Add(_buttonBar, 1, 0);
 
-            composer.Resize += (_, __) =>
+            _sendBtn = MakeButton("Send", (s, e) => _ = SendFromInputAsync());
+            _stopBtn = MakeButton("Stop", (s, e) => _controller.Stop(), visible: false);
+            _clearBtn = MakeButton("Clear", (s, e) => _ = ClearChatAsync());
+            _captureBtn = MakeButton("Capture (OCR)", async (s, e) => await CaptureAndSendAsync());
+            _captureAreaBtn = MakeButton("Capture Area (Image)", async (s, e) => await CaptureAreaAndSendImageAsync());
+            _imgBtn = MakeButton("Generate Image", async (s, e) => await GenerateImageAsync());
+
+            _imgProgress = new ProgressBar
             {
-                _input.Width = composer.ClientSize.Width - 8 - 8 - 420;
-                _sendBtn.Left = _input.Right + 8;
-                _stopBtn.Left = _input.Right + 8;
-                _clearBtn.Left = _sendBtn.Right + 8;
-                _captureBtn.Left = _clearBtn.Right + 8;
-                _imgBtn.Left = _captureBtn.Right + 8;
-
-                _imgProgress.Left = _imgBtn.Right + 12;
+                Style = ProgressBarStyle.Marquee,
+                Size = new Size(140, 14),
+                Visible = false,
+                Margin = new Padding(8, 10, 0, 0)
             };
+
+            // Add in natural order; RightToLeft will keep them aligned to the right
+            _buttonBar.Controls.Add(_imgProgress);
+            _buttonBar.Controls.Add(_stopBtn);
+            _buttonBar.Controls.Add(_imgBtn);
+            _buttonBar.Controls.Add(_captureAreaBtn);
+            _buttonBar.Controls.Add(_captureBtn);
+            _buttonBar.Controls.Add(_clearBtn);
+            _buttonBar.Controls.Add(_sendBtn);
 
             _input.KeyDown += (s, e) =>
             {
@@ -210,10 +207,24 @@ namespace MinimalBrowser.UI
             };
             _ = _chatWeb.EnsureCoreWebView2Async();
 
+            _followupPanel = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Bottom,
+                Height = 56,
+                AutoSize = false,
+                WrapContents = true,
+                FlowDirection = FlowDirection.LeftToRight,
+                BackColor = Color.FromArgb(0x14, 0x19, 0x36),
+                Margin = new Padding(0),
+                Padding = new Padding(10, 8, 10, 8),
+                Visible = false
+            };
+            webHost.Controls.Add(_followupPanel);
+
             FormClosed += (_, __) => _controller.Stop();
         }
 
-        private Button MakeButton(string text, Point location, EventHandler handler, bool visible = true)
+        private Button MakeButton(string text, EventHandler handler, bool visible = true)
         {
             var btn = new Button
             {
@@ -222,10 +233,9 @@ namespace MinimalBrowser.UI
                 ForeColor = Color.FromArgb(0xdb, 0xe8, 0xff),
                 BackColor = Color.FromArgb(0x18, 0x20, 0x3a),
                 FlatStyle = FlatStyle.Flat,
-                Location = location,
-                Size = new Size(110, 32),
-                Anchor = AnchorStyles.Top | AnchorStyles.Right,
-                Visible = visible
+                Size = new Size(150, 32),
+                Visible = visible,
+                Margin = new Padding(6, 4, 0, 4)
             };
             btn.FlatAppearance.BorderColor = Color.FromArgb(0x1f, 0x29, 0x46);
             btn.Click += handler;
@@ -270,6 +280,47 @@ namespace MinimalBrowser.UI
                 }
 
                 await _controller.SendScreenAsync(markdown);
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Capture failed: {ex.Message}");
+            }
+        }
+
+        private async Task CaptureAreaAndSendImageAsync()
+        {
+            try
+            {
+                var caption = (_input.Text ?? string.Empty).Trim();
+
+                Hide();
+                await Task.Delay(150);
+
+                Rectangle? rect = null;
+                using (var selector = new ScreenRegionSelector())
+                {
+                    var dr = selector.ShowDialog(this);
+                    if (dr == DialogResult.OK && selector.SelectedRegion.HasValue)
+                        rect = selector.SelectedRegion.Value;
+                }
+
+                Show();
+                Activate();
+
+                if (rect == null) return;
+
+                using var bmp = new Bitmap(rect.Value.Width, rect.Value.Height, PixelFormat.Format32bppArgb);
+                using (var g = Graphics.FromImage(bmp))
+                {
+                    g.CopyFromScreen(rect.Value.Location, Point.Empty, rect.Value.Size, CopyPixelOperation.SourceCopy);
+                }
+
+                using var resized = ResizeForUploadIfNeeded(bmp, maxLongSide: 1280);
+                var dataUrl = ToDataUrl(resized, preferJpeg: true);
+
+                await _controller.SendImageAsync(caption, dataUrl);
+                _input.Clear();
             }
             catch (OperationCanceledException) { }
             catch (Exception ex)
@@ -357,7 +408,6 @@ namespace MinimalBrowser.UI
             await SendFromInputAsync();
         }
 
-        // NEW: Generate Image handler
         private async Task GenerateImageAsync()
         {
             try
@@ -390,7 +440,7 @@ namespace MinimalBrowser.UI
                             _imgProgress.Maximum = 100;
                         }
                         int val = Math.Max(0, Math.Min(100, (int)Math.Round(p * 100)));
-                        _imgProgress.Value = val == 0 ? 1 : val; // avoid Value must be >= Minimum
+                        _imgProgress.Value = val == 0 ? 1 : val;
                         _status.Text = $"Generating image... {val}%";
                     });
                 });
@@ -424,6 +474,59 @@ namespace MinimalBrowser.UI
                     _imgProgress.Style = ProgressBarStyle.Marquee;
                 });
             }
+        }
+
+        // Helpers
+        private static string ToDataUrl(Bitmap bmp, bool preferJpeg = false)
+        {
+            using var ms = new System.IO.MemoryStream();
+            if (preferJpeg)
+            {
+                var enc = GetImageEncoder(ImageFormat.Jpeg);
+                if (enc != null)
+                {
+                    var p = new EncoderParameters(1);
+                    p.Param[0] = new EncoderParameter(Encoder.Quality, 85L);
+                    bmp.Save(ms, enc, p);
+                }
+                else
+                {
+                    bmp.Save(ms, ImageFormat.Jpeg);
+                }
+                return "data:image/jpeg;base64," + Convert.ToBase64String(ms.ToArray());
+            }
+            else
+            {
+                bmp.Save(ms, ImageFormat.Png);
+                return "data:image/png;base64," + Convert.ToBase64String(ms.ToArray());
+            }
+        }
+
+        private static ImageCodecInfo GetImageEncoder(ImageFormat format)
+        {
+            return ImageCodecInfo.GetImageDecoders().FirstOrDefault(c => c.FormatID == format.Guid);
+        }
+
+        private static Bitmap ResizeForUploadIfNeeded(Bitmap src, int maxLongSide)
+        {
+            int w = src.Width, h = src.Height;
+            int longSide = Math.Max(w, h);
+            if (longSide <= maxLongSide) return (Bitmap)src.Clone();
+
+            double scale = maxLongSide / (double)longSide;
+            int nw = Math.Max(1, (int)Math.Round(w * scale));
+            int nh = Math.Max(1, (int)Math.Round(h * scale));
+
+            var dst = new Bitmap(nw, nh, PixelFormat.Format32bppArgb);
+            using (var g = Graphics.FromImage(dst))
+            {
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+                g.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
+                g.DrawImage(src, new Rectangle(0, 0, nw, nh));
+            }
+            return dst;
         }
     }
 }
