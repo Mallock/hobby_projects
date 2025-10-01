@@ -1,7 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using llm_training_test;
+
+const int Seed = 12345;
+var rng = new Random(Seed);
 
 Console.WriteLine("Enter training text (leave empty to use default):");
 string trainingText = Console.ReadLine();
@@ -42,28 +47,42 @@ for (int t = 0; t < T; t++)
     yIdxs[t] = tokenToIndex[trainWithStop[t + 1]];
 }
 
-// Create RNN
+// Create RNN (fixed seed rng)
 int hiddenSize = 64;
-var rnn = new SimpleRnn(vocabSize, hiddenSize);
+var rnn = new StableRnn(vocabSize, hiddenSize, rng);
 
-// Training
+// Training params
 double learningRate = 0.05;
 int totalEpochs = 0;
 int initialEpochs = 1000;
 int extraEpochBlock = 50;
 int maxEpochs = 10000;
 
+using var cts = new CancellationTokenSource();
+Console.CancelKeyPress += (s, e) => { e.Cancel = true; cts.Cancel(); };
+
 Console.WriteLine($"\nTraining on {trainWithStop.Count} tokens with vocab size {vocabSize}... (stop token: '{stopToken}')");
-TrainBlock(initialEpochs);
-while (!MatchesTraining(rnn, tokens, stopToken, tokenToIndex, indexToToken) && totalEpochs < maxEpochs)
+
+try
 {
-    TrainBlock(extraEpochBlock);
+    await TrainBlockAsync(rnn, xIdxs, yIdxs, learningRate, initialEpochs, cts.Token);
+    while (!MatchesTraining(rnn, tokens, stopToken, tokenToIndex, indexToToken) && totalEpochs < maxEpochs && !cts.IsCancellationRequested)
+    {
+        await TrainBlockAsync(rnn, xIdxs, yIdxs, learningRate, extraEpochBlock, cts.Token);
+    }
+}
+catch (OperationCanceledException)
+{
+    Console.WriteLine("\nTraining cancelled.");
 }
 
-if (MatchesTraining(rnn, tokens, stopToken, tokenToIndex, indexToToken))
-    Console.WriteLine($"\nMatched training sequence including stop token after {totalEpochs} total epochs.");
-else
-    Console.WriteLine($"\nDid not fully match after {totalEpochs} epochs.");
+if (!cts.IsCancellationRequested)
+{
+    if (MatchesTraining(rnn, tokens, stopToken, tokenToIndex, indexToToken))
+        Console.WriteLine($"\nMatched training sequence including stop token after {totalEpochs} total epochs.");
+    else
+        Console.WriteLine($"\nDid not fully match after {totalEpochs} epochs.");
+}
 
 // Step-by-step predictions
 Console.WriteLine("\nStep-by-step predictions on your training sentence (including stop):");
@@ -109,7 +128,6 @@ while (true)
         continue;
     }
 
-    // Condition hidden state on the prompt
     double[] hGen = rnn.ZeroHidden();
     for (int i = 0; i < promptTokens.Count - 1; i++)
     {
@@ -137,7 +155,7 @@ while (true)
             for (int i = 0; i < probs.Length; i++) probs[i] /= sum;
         }
 
-        int nextIndex = SampleFrom(probs, rnn.Random);
+        int nextIndex = SampleFrom(probs, rnn.Rng);
         string nextToken = indexToToken[nextIndex];
         if (nextToken == stopToken)
         {
@@ -153,15 +171,19 @@ while (true)
 }
 
 // Local functions
-void TrainBlock(int epochsInBlock)
+async Task TrainBlockAsync(StableRnn rnn, int[] xIdxs, int[] yIdxs, double learningRate, int epochsInBlock, CancellationToken ct)
 {
-    for (int e = 0; e < epochsInBlock; e++)
+    await Task.Run(() =>
     {
-        double loss = rnn.TrainSequence(xIdxs, yIdxs, learningRate);
-        totalEpochs++;
-        if (totalEpochs % 50 == 0)
-            Console.WriteLine($"Epoch {totalEpochs}, Average Loss: {loss / xIdxs.Length:F4}");
-    }
+        for (int e = 0; e < epochsInBlock; e++)
+        {
+            ct.ThrowIfCancellationRequested();
+            double loss = rnn.TrainSequence(xIdxs, yIdxs, learningRate);
+            int epochNumber = Interlocked.Increment(ref totalEpochs);
+            if (epochNumber % 50 == 0)
+                Console.WriteLine($"Epoch {epochNumber}, Average Loss: {loss / xIdxs.Length:F4}");
+        }
+    }, ct);
 }
 
 static List<string> Tokenize(string text)
@@ -207,7 +229,7 @@ static int SampleFrom(double[] probs, Random rnd)
     return probs.Length - 1;
 }
 
-static bool MatchesTraining(SimpleRnn rnn, List<string> tokens, string stopToken,
+static bool MatchesTraining(StableRnn rnn, List<string> tokens, string stopToken,
     Dictionary<string, int> tokenToIndex, Dictionary<int, string> indexToToken)
 {
     if (tokens.Count == 0) return false;

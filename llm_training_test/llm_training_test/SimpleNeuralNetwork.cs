@@ -1,6 +1,6 @@
 ﻿namespace llm_training_test
 {
-    public class SimpleRnn
+    public class StableRnn
     {
         int vocabSize;
         int hiddenSize;
@@ -11,12 +11,14 @@
         double[] bh;   // [H]
         double[] by;   // [V]
 
-        public Random Random = new Random();
+        private readonly Random _rng;
+        public Random Rng => _rng;
 
-        public SimpleRnn(int vocabSize, int hiddenSize)
+        public StableRnn(int vocabSize, int hiddenSize, Random rng)
         {
             this.vocabSize = vocabSize;
             this.hiddenSize = hiddenSize;
+            _rng = rng;
 
             Wxh = new double[vocabSize, hiddenSize];
             Whh = new double[hiddenSize, hiddenSize];
@@ -35,15 +37,15 @@
 
             for (int i = 0; i < vocabSize; i++)
                 for (int j = 0; j < hiddenSize; j++)
-                    Wxh[i, j] = (Random.NextDouble() - 0.5) * scaleIH;
+                    Wxh[i, j] = (_rng.NextDouble() - 0.5) * scaleIH;
 
             for (int i = 0; i < hiddenSize; i++)
                 for (int j = 0; j < hiddenSize; j++)
-                    Whh[i, j] = (Random.NextDouble() - 0.5) * scaleHH;
+                    Whh[i, j] = (_rng.NextDouble() - 0.5) * scaleHH;
 
             for (int i = 0; i < hiddenSize; i++)
                 for (int j = 0; j < vocabSize; j++)
-                    Why[i, j] = (Random.NextDouble() - 0.5) * scaleHO;
+                    Why[i, j] = (_rng.NextDouble() - 0.5) * scaleHO;
 
             for (int j = 0; j < hiddenSize; j++) bh[j] = 0.0;
             for (int k = 0; k < vocabSize; k++) by[k] = 0.0;
