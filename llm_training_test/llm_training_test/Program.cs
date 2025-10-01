@@ -5,15 +5,15 @@ using System.Threading;
 using System.Threading.Tasks;
 using llm_training_test;
 
-const int Seed = 12345;
-var rng = new Random(Seed);
+const int Seed = 12345; // fixed seed for reproducibility
+var rng = new Random(Seed); // single RNG instance
 
 Console.WriteLine("Enter training text (leave empty to use default):");
 string trainingText = Console.ReadLine();
 if (string.IsNullOrWhiteSpace(trainingText))
     trainingText = "hello world hello";
 
-// Tokenize into words
+// tokenize into words
 var tokens = Tokenize(trainingText);
 if (tokens.Count < 2)
 {
@@ -21,11 +21,11 @@ if (tokens.Count < 2)
     return;
 }
 
-// Choose stop token
+// stop token
 string stopToken = ChooseStopToken(tokens);
 var trainWithStop = new List<string>(tokens) { stopToken };
 
-// Build vocabulary
+// vocab
 var vocab = trainWithStop.Distinct().ToList();
 int vocabSize = vocab.Count;
 
@@ -37,7 +37,7 @@ for (int i = 0; i < vocabSize; i++)
     indexToToken[i] = vocab[i];
 }
 
-// Prepare training indices
+// training indices
 int T = trainWithStop.Count - 1;
 int[] xIdxs = new int[T];
 int[] yIdxs = new int[T];
@@ -47,11 +47,11 @@ for (int t = 0; t < T; t++)
     yIdxs[t] = tokenToIndex[trainWithStop[t + 1]];
 }
 
-// Create RNN (fixed seed rng)
+// model
 int hiddenSize = 64;
 var rnn = new StableRnn(vocabSize, hiddenSize, rng);
 
-// Training params
+// training params
 double learningRate = 0.05;
 int totalEpochs = 0;
 int initialEpochs = 1000;
@@ -63,12 +63,16 @@ Console.CancelKeyPress += (s, e) => { e.Cancel = true; cts.Cancel(); };
 
 Console.WriteLine($"\nTraining on {trainWithStop.Count} tokens with vocab size {vocabSize}... (stop token: '{stopToken}')");
 
+// async training with cancellation; epoch logging inside the block using startEpoch
 try
 {
-    await TrainBlockAsync(rnn, xIdxs, yIdxs, learningRate, initialEpochs, cts.Token);
+    var res = await TrainBlockAsync(rnn, xIdxs, yIdxs, learningRate, totalEpochs, initialEpochs, cts.Token);
+    totalEpochs += res.EpochsCompleted;
+
     while (!MatchesTraining(rnn, tokens, stopToken, tokenToIndex, indexToToken) && totalEpochs < maxEpochs && !cts.IsCancellationRequested)
     {
-        await TrainBlockAsync(rnn, xIdxs, yIdxs, learningRate, extraEpochBlock, cts.Token);
+        res = await TrainBlockAsync(rnn, xIdxs, yIdxs, learningRate, totalEpochs, extraEpochBlock, cts.Token);
+        totalEpochs += res.EpochsCompleted;
     }
 }
 catch (OperationCanceledException)
@@ -84,7 +88,7 @@ if (!cts.IsCancellationRequested)
         Console.WriteLine($"\nDid not fully match after {totalEpochs} epochs.");
 }
 
-// Step-by-step predictions
+// step-by-step predictions
 Console.WriteLine("\nStep-by-step predictions on your training sentence (including stop):");
 Console.WriteLine($"Sentence: \"{string.Join(" ", tokens)}\"  Stop: '{stopToken}'");
 {
@@ -100,7 +104,7 @@ Console.WriteLine($"Sentence: \"{string.Join(" ", tokens)}\"  Stop: '{stopToken}
     }
 }
 
-// Interactive generation (word-level)
+// generation
 Console.WriteLine("\nVocab (excluding stop): " + string.Join(" ", vocab.Where(w => w != stopToken)));
 Console.WriteLine("Enter a prompt of known words (or 'q' to quit). Full prompt conditions the RNN state.");
 Console.WriteLine("You can also specify generation length and temperature, e.g.: mitä kuuluu|10|0.8");
@@ -128,6 +132,7 @@ while (true)
         continue;
     }
 
+    // condition state on full prompt
     double[] hGen = rnn.ZeroHidden();
     for (int i = 0; i < promptTokens.Count - 1; i++)
     {
@@ -143,6 +148,7 @@ while (true)
     {
         var probs = rnn.StepProbs(currentIndex, hGen, out hGen);
 
+        // temperature
         if (Math.Abs(temperature - 1.0) > 1e-9)
         {
             double invT = 1.0 / temperature;
@@ -170,22 +176,28 @@ while (true)
     Console.WriteLine(string.Join(" ", generated));
 }
 
-// Local functions
-async Task TrainBlockAsync(StableRnn rnn, int[] xIdxs, int[] yIdxs, double learningRate, int epochsInBlock, CancellationToken ct)
+// async training block returning epochs completed and last loss; logs every 50 epochs using startEpoch offset
+static async Task<(int EpochsCompleted, double LastAvgLoss)> TrainBlockAsync(StableRnn rnn, int[] xIdxs, int[] yIdxs, double learningRate, int startEpoch, int epochsInBlock, CancellationToken ct)
 {
-    await Task.Run(() =>
+    return await Task.Run(() =>
     {
+        int completed = 0;
+        double lastLoss = 0.0;
         for (int e = 0; e < epochsInBlock; e++)
         {
             ct.ThrowIfCancellationRequested();
             double loss = rnn.TrainSequence(xIdxs, yIdxs, learningRate);
-            int epochNumber = Interlocked.Increment(ref totalEpochs);
-            if (epochNumber % 50 == 0)
-                Console.WriteLine($"Epoch {epochNumber}, Average Loss: {loss / xIdxs.Length:F4}");
+            completed++;
+            lastLoss = loss / Math.Max(1, xIdxs.Length);
+            int currentEpoch = startEpoch + completed;
+            if (currentEpoch % 50 == 0)
+                Console.WriteLine($"Epoch {currentEpoch}, Average Loss: {lastLoss:F4}");
         }
+        return (completed, lastLoss);
     }, ct);
 }
 
+// simple whitespace tokenizer
 static List<string> Tokenize(string text)
 {
     return text
@@ -193,6 +205,7 @@ static List<string> Tokenize(string text)
         .ToList();
 }
 
+// choose EOS token not in tokens
 static string ChooseStopToken(List<string> tokens)
 {
     var candidates = new[] { "<EOS>", "<END>", "<STOP>", "<∎>" };
@@ -208,6 +221,7 @@ static string ChooseStopToken(List<string> tokens)
     return candidate;
 }
 
+// top-k utility
 static IEnumerable<(string tk, double p)> TopK(double[] probs, Dictionary<int, string> indexToToken, int k)
 {
     return probs
@@ -217,6 +231,7 @@ static IEnumerable<(string tk, double p)> TopK(double[] probs, Dictionary<int, s
         .Select(x => (indexToToken[x.idx], x.p));
 }
 
+// multinomial sampling
 static int SampleFrom(double[] probs, Random rnd)
 {
     double r = rnd.NextDouble();
@@ -229,6 +244,7 @@ static int SampleFrom(double[] probs, Random rnd)
     return probs.Length - 1;
 }
 
+// exact-match checker
 static bool MatchesTraining(StableRnn rnn, List<string> tokens, string stopToken,
     Dictionary<string, int> tokenToIndex, Dictionary<int, string> indexToToken)
 {
@@ -254,6 +270,7 @@ static bool MatchesTraining(StableRnn rnn, List<string> tokens, string stopToken
     return true;
 }
 
+// argmax
 static int ArgMax(double[] arr)
 {
     int idx = 0;
