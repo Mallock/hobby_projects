@@ -20,7 +20,7 @@
         // toggles
         bool parallelForward = true;  // parallelize within-step forward
         bool parallelBackward = true; // parallelize within-step backward
-        int parallelThreshold = 32;   // minimal size to benefit from parallel loops
+        int parallelThreshold = 64;   // minimal size to benefit from parallel loops
 
         public StableRnn(int vocabSize, int hiddenSize, Random rng)
         {
@@ -40,9 +40,9 @@
         // initialize weights
         void InitWeights()
         {
-            double scaleIH = 0.1;
-            double scaleHH = 0.1 / Math.Sqrt(hiddenSize);
-            double scaleHO = 0.1;
+            double scaleIH = 0.05;
+            double scaleHH = 0.05 / Math.Sqrt(hiddenSize);
+            double scaleHO = 0.05;
 
             for (int i = 0; i < vocabSize; i++)
                 for (int j = 0; j < hiddenSize; j++)
@@ -170,7 +170,7 @@
                 dy[yIdxs[t]] -= 1.0;
 
                 // dWhy += h_t^T * dy (parallel over hidden rows)
-                if (parallelBackward && hiddenSize >= parallelThreshold)
+                if (hiddenSize >= parallelThreshold)
                 {
                     Parallel.For(0, hiddenSize, j =>
                     {
@@ -194,7 +194,7 @@
                     dby[k] += dy[k];
 
                 // dh = Why * dy + dhNext (parallel over hidden)
-                if (parallelBackward && hiddenSize >= parallelThreshold)
+                if (hiddenSize >= parallelThreshold)
                 {
                     Parallel.For(0, hiddenSize, j =>
                     {
@@ -216,7 +216,7 @@
                 }
 
                 // dhraw = (1 - h_t^2) * dh (parallel over hidden)
-                if (parallelBackward && hiddenSize >= parallelThreshold)
+                if (hiddenSize >= parallelThreshold)
                 {
                     Parallel.For(0, hiddenSize, j =>
                     {
@@ -235,7 +235,7 @@
 
                 // dbh += dhraw; dWxh[xIndex,:] += dhraw (parallel over hidden)
                 int xIndex = xIdxs[t];
-                if (parallelBackward && hiddenSize >= parallelThreshold)
+                if (hiddenSize >= parallelThreshold)
                 {
                     Parallel.For(0, hiddenSize, j =>
                     {
@@ -253,7 +253,7 @@
                 }
 
                 // dWhh += h_{t-1}^T * dhraw (parallel over hidden column j)
-                if (parallelBackward && hiddenSize >= parallelThreshold)
+                if (hiddenSize >= parallelThreshold)
                 {
                     Parallel.For(0, hiddenSize, j =>
                     {
@@ -277,7 +277,7 @@
                 }
 
                 // dhNext = Whh * dhraw (parallel over u)
-                if (parallelBackward && hiddenSize >= parallelThreshold)
+                if (hiddenSize >= parallelThreshold)
                 {
                     Parallel.For(0, hiddenSize, u =>
                     {
