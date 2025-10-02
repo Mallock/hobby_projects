@@ -55,10 +55,9 @@ namespace TinyGptDemo.Training
 
                 meter.RecordEpoch(epoch, lastAvgLoss, sw.Elapsed.TotalMilliseconds);
 
-                if (epoch % config.LogEvery == 0)
+                if (epoch == 1 || epoch % config.LogEvery == 0)
                 {
                     TimeSpan elapsed = trainingTimer.Elapsed;
-
                     int estToGoal = meter.EstimatedEpochsToGoal();
                     string estEpochsText = estToGoal == int.MaxValue ? "?" : estToGoal.ToString();
 
@@ -71,10 +70,8 @@ namespace TinyGptDemo.Training
 
                     Console.WriteLine(
                         $"Epoch {epoch}, Avg Loss: {lastAvgLoss:F4} | " +
-                        $"{meter.AvgEpochMs():F1} ms/epoch | " +
-                        $"elapsed: {TimeFormatting.Format(elapsed)} | " +
-                        $"ETA: {TimeFormatting.Format(eta)} | " +
-                        $"est total: {TimeFormatting.Format(estTotal)} | " +
+                        $"{meter.AvgEpochMs():F1} ms/epoch | elapsed: {TimeFormatting.Format(elapsed)} | " +
+                        $"ETA: {TimeFormatting.Format(eta)} | est total: {TimeFormatting.Format(estTotal)} | " +
                         $"est epochs to goal: {estEpochsText}");
                 }
             }

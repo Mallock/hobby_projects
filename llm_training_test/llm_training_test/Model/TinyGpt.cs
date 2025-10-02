@@ -1,5 +1,9 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
+using TinyGptDemo.Utils;
 
 namespace TinyGptDemo.Model
 {
@@ -18,6 +22,12 @@ namespace TinyGptDemo.Model
         private readonly Param1D Bout;
         private readonly Adam adam;
 
+        private readonly object headGradLock = new();
+        private readonly object embedGradLock = new();
+
+        private readonly ParallelOptions parallelOpts =
+            new() { MaxDegreeOfParallelism = Environment.ProcessorCount };
+
         public TinyGpt(int vocabSize, ModelConfig config, Random rng)
         {
             V = vocabSize;
@@ -31,7 +41,7 @@ namespace TinyGptDemo.Model
 
             blocks = new Block[L];
             for (int i = 0; i < L; i++)
-                blocks[i] = new Block(D, Dhid, rng);
+                blocks[i] = new Block(D, Dhid, rng, parallelOpts);
 
             Wout = new Param2D(D, V, rng, 0.02f);
             Bout = new Param1D(V);
@@ -48,45 +58,41 @@ namespace TinyGptDemo.Model
         {
             int B = X.GetLength(0);
             int T = X.GetLength(1);
-
             if (T > Tctx)
                 throw new ArgumentException($"Sequence length {T} exceeds model context window {Tctx}.");
 
             var cache = new ForwardCache(B, T, D, V, L, Dhid);
             cache.CaptureInputIds(X);
 
-            for (int b = 0; b < B; b++)
+            Parallel.For(0, B, parallelOpts, b =>
             {
                 for (int t = 0; t < T; t++)
                 {
                     Span<float> h0 = cache.GetHSpan(0, b, t);
                     ReadOnlySpan<float> tok = tokEmb.RowSpan(X[b, t]);
-                    ReadOnlySpan<float> pos = posEmb.RowSpan(t);
-
+                    ReadOnlySpan<float> pos = posEmb.RowSpan(Math.Min(t, Tctx - 1));
                     for (int d = 0; d < D; d++)
                         h0[d] = tok[d] + pos[d];
                 }
-            }
+            });
 
             for (int l = 0; l < L; l++)
                 blocks[l].Forward(cache, l);
 
-            for (int b = 0; b < B; b++)
+            Parallel.For(0, B, parallelOpts, b =>
             {
                 for (int t = 0; t < T; t++)
                 {
                     ReadOnlySpan<float> h = cache.GetHSpan(L, b, t);
-
                     for (int v = 0; v < V; v++)
                     {
                         float sum = Bout.W[v];
-                        ReadOnlySpan<float> wRow = Wout.RowSpan(d: v, transposed: true); // treat columns as outputs
                         for (int d = 0; d < D; d++)
-                            sum += h[d] * wRow[d];
+                            sum += h[d] * Wout.W[d][v];
                         cache.Logits[b, t, v] = sum;
                     }
                 }
-            }
+            });
 
             return cache;
         }
@@ -102,56 +108,106 @@ namespace TinyGptDemo.Model
             Bout.ZeroGrad();
             foreach (var block in blocks) block.ZeroGrad();
 
-            for (int b = 0; b < B; b++)
-            {
-                for (int t = 0; t < T; t++)
+            Parallel.For<HeadGrad>(0, B, parallelOpts,
+                () => new HeadGrad(D, V),
+                (b, _, local) =>
                 {
-                    ReadOnlySpan<float> h = cache.GetHSpan(L, b, t);
-                    Span<float> dh = cache.GetDHSpan(L, b, t);
-
-                    for (int v = 0; v < V; v++)
+                    for (int t = 0; t < T; t++)
                     {
-                        float grad = cache.DLogits[b, t, v];
-                        Bout.G[v] += grad;
+                        Span<float> dh = cache.GetDHSpan(L, b, t);
+                        dh.Clear();
+                        ReadOnlySpan<float> h = cache.GetHSpan(L, b, t);
 
-                        ReadOnlySpan<float> wCol = Wout.RowSpan(d: v, transposed: true);
-                        Span<float> gCol = Wout.GradRowSpan(d: v, transposed: true);
+                        for (int v = 0; v < V; v++)
+                        {
+                            float grad = cache.DLogits[b, t, v];
+                            local.Bout[v] += grad;
+
+                            for (int d = 0; d < D; d++)
+                            {
+                                local.Wout[d][v] += h[d] * grad;
+                                dh[d] += Wout.W[d][v] * grad;
+                            }
+                        }
+                    }
+
+                    return local;
+                },
+                local =>
+                {
+                    lock (headGradLock)
+                    {
+                        for (int v = 0; v < V; v++)
+                            Bout.G[v] += local.Bout[v];
 
                         for (int d = 0; d < D; d++)
                         {
-                            gCol[d] += h[d] * grad;
-                            dh[d] += wCol[d] * grad;
+                            Span<float> dst = Wout.GradRowSpan(d);
+                            float[] src = local.Wout[d];
+                            for (int v = 0; v < V; v++)
+                                dst[v] += src[v];
                         }
                     }
-                }
-            }
+                });
 
             for (int l = L - 1; l >= 0; l--)
                 blocks[l].Backward(cache, l);
 
-            for (int b = 0; b < B; b++)
-            {
-                for (int t = 0; t < T; t++)
+            Parallel.For<EmbedGrad>(0, B, parallelOpts,
+                () => new EmbedGrad(Tctx, D, V),
+                (b, _, grad) =>
                 {
-                    Span<float> dh = cache.GetDHSpan(0, b, t);
-                    Span<float> posGrad = posEmb.GradRowSpan(t);
-                    Span<float> tokGrad = tokEmb.GradRowSpan(cache.XTokIds[b, t]);
-
-                    for (int d = 0; d < D; d++)
+                    for (int t = 0; t < T; t++)
                     {
-                        posGrad[d] += dh[d];
-                        tokGrad[d] += dh[d];
+                        Span<float> dh = cache.GetDHSpan(0, b, t);
+                        int posIdx = Math.Min(t, Tctx - 1);
+                        int tokIdx = cache.XTokIds[b, t];
+
+                        float[] posRow = grad.Pos[posIdx];
+                        float[] tokRow = grad.Tok[tokIdx];
+
+                        for (int d = 0; d < D; d++)
+                        {
+                            float val = dh[d];
+                            posRow[d] += val;
+                            tokRow[d] += val;
+                        }
                     }
-                }
-            }
+
+                    return grad;
+                },
+                grad =>
+                {
+                    lock (embedGradLock)
+                    {
+                        for (int i = 0; i < Tctx; i++)
+                        {
+                            Span<float> dst = posEmb.GradRowSpan(i);
+                            float[] src = grad.Pos[i];
+                            for (int d = 0; d < D; d++)
+                                dst[d] += src[d];
+                        }
+
+                        for (int i = 0; i < V; i++)
+                        {
+                            Span<float> dst = tokEmb.GradRowSpan(i);
+                            float[] src = grad.Tok[i];
+                            for (int d = 0; d < D; d++)
+                                dst[d] += src[d];
+                        }
+                    }
+                });
         }
 
         public void AdamStep(float lr, float wd) => adam.Step(lr, wd);
+
+        // -----------------------------------------------------------------------
 
         private sealed class Block
         {
             private readonly int D;
             private readonly int Dhid;
+            private readonly ParallelOptions options;
 
             private readonly Param1D ln1_g;
             private readonly Param1D ln1_b;
@@ -168,10 +224,13 @@ namespace TinyGptDemo.Model
             private readonly Param1D b1;
             private readonly Param1D b2;
 
-            public Block(int dModel, int dHidden, Random rng)
+            private readonly object gradLock = new();
+
+            public Block(int dModel, int dHidden, Random rng, ParallelOptions options)
             {
                 D = dModel;
                 Dhid = dHidden;
+                this.options = options;
 
                 ln1_g = new Param1D(D, 1f);
                 ln1_b = new Param1D(D, 0f);
@@ -229,14 +288,13 @@ namespace TinyGptDemo.Model
                 int T = cache.T;
                 float scale = 1f / MathF.Sqrt(D);
 
-                for (int b = 0; b < B; b++)
+                Parallel.For(0, B, options, b =>
                 {
                     for (int t = 0; t < T; t++)
                     {
                         Span<float> h = cache.GetHSpan(l, b, t);
                         Span<float> ln1Out = cache.GetLN1OutSpan(l, b, t);
                         Span<float> ln1Norm = cache.GetLN1NormZSpan(l, b, t);
-
                         ref float mean = ref cache.GetLN1MeanRef(l, b, t);
                         ref float invStd = ref cache.GetLN1InvStdRef(l, b, t);
 
@@ -261,69 +319,62 @@ namespace TinyGptDemo.Model
                             v[dOut] = sumV;
                         }
                     }
-                }
+                });
 
-                for (int b = 0; b < B; b++)
+                Parallel.For(0, B, options, b =>
                 {
                     for (int t = 0; t < T; t++)
                     {
-                        for (int s = 0; s < T; s++)
-                        {
-                            float score = 0f;
-                            Span<float> q = cache.GetQSpan(l, b, t);
-                            Span<float> k = cache.GetKSpan(l, b, s);
-
-                            for (int d = 0; d < D; d++)
-                                score += q[d] * k[d];
-
-                            cache.Scores[l, b, t, s] = s > t ? float.NegativeInfinity : score * scale;
-                        }
-
+                        Span<float> scoresRow = MemoryMarshal.CreateSpan(ref cache.Scores[l, b, t, 0], T);
                         float max = float.NegativeInfinity;
+
                         for (int s = 0; s < T; s++)
                         {
-                            float val = cache.Scores[l, b, t, s];
-                            if (val > max) max = val;
+                            float score = Simd.Dot(cache.GetQSpan(l, b, t), cache.GetKSpan(l, b, s));
+                            if (s > t) score = float.NegativeInfinity;
+                            float scaled = score * scale;
+                            scoresRow[s] = scaled;
+                            if (scaled > max) max = scaled;
                         }
 
                         float sum = 0f;
                         for (int s = 0; s < T; s++)
                         {
-                            float val = cache.Scores[l, b, t, s];
+                            float val = scoresRow[s];
                             float exp = float.IsNegativeInfinity(val) ? 0f : MathF.Exp(val - max);
-                            cache.Scores[l, b, t, s] = exp;
+                            scoresRow[s] = exp;
                             sum += exp;
                         }
 
                         if (sum == 0f) sum = 1f;
+                        for (int s = 0; s < T; s++)
+                            scoresRow[s] /= sum;
+                    }
+                });
+
+                Parallel.For(0, B, options, b =>
+                {
+                    for (int t = 0; t < T; t++)
+                    {
+                        Span<float> attnOut = cache.GetAttnOutSpan(l, b, t);
+                        attnOut.Clear();
 
                         for (int s = 0; s < T; s++)
-                            cache.Scores[l, b, t, s] /= sum;
-                    }
-                }
-
-                for (int b = 0; b < B; b++)
-                {
-                    for (int t = 0; t < T; t++)
-                    {
-                        Span<float> attnOut = cache.GetAttnOutSpan(l, b, t);
-
-                        for (int d = 0; d < D; d++)
                         {
-                            float sum = 0f;
-                            for (int s = 0; s < T; s++)
-                                sum += cache.Scores[l, b, t, s] * cache.Val[l, b, s, d];
-                            attnOut[d] = sum;
+                            float weight = cache.Scores[l, b, t, s];
+                            Span<float> val = cache.GetVSpan(l, b, s);
+                            for (int d = 0; d < D; d++)
+                                attnOut[d] += weight * val[d];
                         }
                     }
-                }
+                });
 
-                for (int b = 0; b < B; b++)
+                Parallel.For(0, B, options, b =>
                 {
                     for (int t = 0; t < T; t++)
                     {
                         Span<float> attnOut = cache.GetAttnOutSpan(l, b, t);
-                        Span<float> h = cache.GetHSpan(l, b, t);
+                        Span<float> hPrev = cache.GetHSpan(l, b, t);
                         Span<float> tmp = cache.GetTmpSpan(l, b, t);
                         tmp.Clear();
 
@@ -337,18 +388,17 @@ namespace TinyGptDemo.Model
 
                         Span<float> hNext = cache.GetHSpan(l + 1, b, t);
                         for (int d = 0; d < D; d++)
-                            hNext[d] = h[d] + tmp[d];
+                            hNext[d] = hPrev[d] + tmp[d];
                     }
-                }
+                });
 
-                for (int b = 0; b < B; b++)
+                Parallel.For(0, B, options, b =>
                 {
                     for (int t = 0; t < T; t++)
                     {
                         Span<float> h = cache.GetHSpan(l, b, t);
                         Span<float> ln2Out = cache.GetLN2OutSpan(l, b, t);
                         Span<float> ln2Norm = cache.GetLN2NormZSpan(l, b, t);
-
                         ref float mean = ref cache.GetLN2MeanRef(l, b, t);
                         ref float invStd = ref cache.GetLN2InvStdRef(l, b, t);
 
@@ -384,7 +434,7 @@ namespace TinyGptDemo.Model
                         for (int d = 0; d < D; d++)
                             hNext[d] += tmp[d];
                     }
-                }
+                });
             }
 
             public void Backward(ForwardCache cache, int l)
@@ -393,217 +443,222 @@ namespace TinyGptDemo.Model
                 int T = cache.T;
                 float scale = 1f / MathF.Sqrt(D);
 
-                for (int b = 0; b < B; b++)
-                {
-                    for (int t = 0; t < T; t++)
+                Parallel.For<BlockGrad>(0, B, options,
+                    () => new BlockGrad(D, Dhid),
+                    (b, _, grad) =>
                     {
-                        Span<float> dhNext = cache.GetDHSpan(l + 1, b, t);
-                        Span<float> dh = cache.GetDHSpan(l, b, t);
-
-                        for (int d = 0; d < D; d++)
-                            dh[d] += dhNext[d];
-
-                        Span<float> ln2Out = cache.GetLN2OutSpan(l, b, t);
-                        Span<float> dLn2Out = cache.GetDLN2OutSpan(l, b, t);
-                        Span<float> m1 = cache.GetM1Span(l, b, t);
-                        Span<float> mask = cache.GetM1MaskSpan(l, b, t);
-                        Span<float> tmp = cache.GetTmpSpan(l, b, t);
-
-                        for (int dOut = 0; dOut < D; dOut++)
+                        for (int t = 0; t < T; t++)
                         {
-                            float grad = dhNext[dOut];
-                            tmp[dOut] = grad;
-                            b2.G[dOut] += grad;
+                            Span<float> dh = cache.GetDHSpan(l, b, t);
+                            dh.Clear();
+                            Span<float> dhNext = cache.GetDHSpan(l + 1, b, t);
+                            for (int d = 0; d < D; d++)
+                                dh[d] += dhNext[d];
+
+                            cache.GetDLN2OutSpan(l, b, t).Clear();
+                            cache.GetDLN1OutSpan(l, b, t).Clear();
+                            cache.GetDA1Span(l, b, t).Clear();
+                            cache.GetDA2Span(l, b, t).Clear();
+                            cache.GetDQSpan(l, b, t).Clear();
+                            cache.GetDKSpan(l, b, t).Clear();
+                            cache.GetDValSpan(l, b, t).Clear();
+                            cache.GetDAttnOutSpan(l, b, t).Clear();
+                            cache.GetDM1Span(l, b, t).Clear();
+                            MemoryMarshal.CreateSpan(ref cache.dScores[l, b, t, 0], T).Clear();
                         }
 
-                        Span<float> dHidden = cache.GetDM1Span(l, b, t);
-                        dHidden.Clear();
-
-                        for (int dOut = 0; dOut < D; dOut++)
+                        for (int t = 0; t < T; t++)
                         {
-                            float grad = tmp[dOut];
+                            Span<float> dhNext = cache.GetDHSpan(l + 1, b, t);
+                            Span<float> ln2Out = cache.GetLN2OutSpan(l, b, t);
+                            Span<float> dLn2Out = cache.GetDLN2OutSpan(l, b, t);
+                            Span<float> m1 = cache.GetM1Span(l, b, t);
+                            Span<float> mask = cache.GetM1MaskSpan(l, b, t);
+                            Span<float> dHidden = cache.GetDM1Span(l, b, t);
+
+                            for (int dOut = 0; dOut < D; dOut++)
+                                grad.B2[dOut] += dhNext[dOut];
+
+                            for (int dOut = 0; dOut < D; dOut++)
+                            {
+                                float gradVal = dhNext[dOut];
+                                for (int hIdx = 0; hIdx < Dhid; hIdx++)
+                                {
+                                    float act = m1[hIdx] > 0f ? m1[hIdx] : 0f;
+                                    grad.W2[hIdx][dOut] += act * gradVal;
+                                    dHidden[hIdx] += W2.W[hIdx][dOut] * gradVal;
+                                }
+                            }
+
                             for (int hIdx = 0; hIdx < Dhid; hIdx++)
                             {
-                                float act = m1[hIdx] > 0f ? m1[hIdx] : 0f;
-                                W2.G[hIdx][dOut] += act * grad;
-                                dHidden[hIdx] += W2.W[hIdx][dOut] * grad;
+                                if (mask[hIdx] == 0f)
+                                    dHidden[hIdx] = 0f;
                             }
-                        }
 
-                        for (int hIdx = 0; hIdx < Dhid; hIdx++)
-                            if (mask[hIdx] == 0f) dHidden[hIdx] = 0f;
-
-                        for (int hIdx = 0; hIdx < Dhid; hIdx++)
-                        {
-                            float grad = dHidden[hIdx];
-                            b1.G[hIdx] += grad;
-                            for (int dIn = 0; dIn < D; dIn++)
+                            for (int hIdx = 0; hIdx < Dhid; hIdx++)
                             {
-                                W1.G[dIn][hIdx] += ln2Out[dIn] * grad;
-                                dLn2Out[dIn] += W1.W[dIn][hIdx] * grad;
-                            }
-                        }
-                    }
-                }
-
-                for (int b = 0; b < B; b++)
-                {
-                    for (int t = 0; t < T; t++)
-                    {
-                        Span<float> h = cache.GetHSpan(l, b, t);
-                        Span<float> dLn2Out = cache.GetDLN2OutSpan(l, b, t);
-                        Span<float> norm = cache.GetLN2NormZSpan(l, b, t);
-
-                        ref float invStd = ref cache.GetLN2InvStdRef(l, b, t);
-                        LayerNormBackwardVec(h, dLn2Out, norm, invStd, ln2_g, ln2_b, cache.GetDA2Span(l, b, t));
-                    }
-                }
-
-                for (int b = 0; b < B; b++)
-                {
-                    for (int t = 0; t < T; t++)
-                    {
-                        Span<float> dh = cache.GetDA2Span(l, b, t);
-                        Span<float> attnOut = cache.GetAttnOutSpan(l, b, t);
-                        Span<float> dAttn = cache.GetDAttnOutSpan(l, b, t);
-                        dAttn.Clear();
-
-                        for (int dOut = 0; dOut < D; dOut++)
-                        {
-                            float grad = cache.GetDHSpan(l, b, t)[dOut];
-                            for (int dIn = 0; dIn < D; dIn++)
-                            {
-                                W2D(Wo, dIn, dOut, attnOut[dIn], grad);
-                                dAttn[dIn] += Wo.W[dIn][dOut] * grad;
+                                float gradVal = dHidden[hIdx];
+                                grad.B1[hIdx] += gradVal;
+                                for (int dIn = 0; dIn < D; dIn++)
+                                {
+                                    grad.W1[dIn][hIdx] += ln2Out[dIn] * gradVal;
+                                    dLn2Out[dIn] += W1.W[dIn][hIdx] * gradVal;
+                                }
                             }
                         }
 
-                        void W2D(Param2D wo, int i, int j, float a, float g) => wo.G[i][j] += a * g;
-                    }
-                }
-
-                for (int b = 0; b < B; b++)
-                {
-                    for (int t = 0; t < T; t++)
-                    {
-                        for (int s = 0; s < T; s++)
+                        for (int t = 0; t < T; t++)
                         {
-                            float ds = 0f;
+                            Span<float> h = cache.GetHSpan(l, b, t);
+                            Span<float> dLn2Out = cache.GetDLN2OutSpan(l, b, t);
+                            Span<float> norm = cache.GetLN2NormZSpan(l, b, t);
+                            float invStd = cache.GetLN2InvStdRef(l, b, t);
+                            Span<float> da2 = cache.GetDA2Span(l, b, t);
+
+                            LayerNormBackwardVec(h, dLn2Out, norm, invStd, ln2_g.W, grad.Ln2Gamma, grad.Ln2Beta, da2);
+                        }
+
+                        for (int t = 0; t < T; t++)
+                        {
+                            Span<float> dh = cache.GetDHSpan(l, b, t);
+                            Span<float> attnOut = cache.GetAttnOutSpan(l, b, t);
                             Span<float> dAttn = cache.GetDAttnOutSpan(l, b, t);
-                            Span<float> val = cache.GetVSpan(l, b, s);
 
-                            for (int d = 0; d < D; d++)
+                            for (int dOut = 0; dOut < D; dOut++)
                             {
-                                ds += dAttn[d] * val[d];
-                                cache.dVal[l, b, s, d] += cache.Scores[l, b, t, s] * dAttn[d];
+                                float gradVal = dh[dOut];
+                                for (int dIn = 0; dIn < D; dIn++)
+                                {
+                                    grad.Wo[dIn][dOut] += attnOut[dIn] * gradVal;
+                                    dAttn[dIn] += Wo.W[dIn][dOut] * gradVal;
+                                }
                             }
-
-                            cache.dScores[l, b, t, s] += ds;
                         }
-                    }
-                }
 
-                for (int b = 0; b < B; b++)
-                {
-                    for (int t = 0; t < T; t++)
-                    {
-                        float dot = 0f;
-                        for (int s = 0; s < T; s++)
-                            dot += cache.dScores[l, b, t, s] * cache.Scores[l, b, t, s];
-
-                        for (int s = 0; s < T; s++)
+                        for (int t = 0; t < T; t++)
                         {
-                            float p = cache.Scores[l, b, t, s];
-                            cache.dScores[l, b, t, s] = p * (cache.dScores[l, b, t, s] - dot) * scale;
+                            Span<float> dAttn = cache.GetDAttnOutSpan(l, b, t);
+
+                            for (int s = 0; s < T; s++)
+                            {
+                                float weight = cache.Scores[l, b, t, s];
+                                Span<float> val = cache.GetVSpan(l, b, s);
+                                float ds = 0f;
+
+                                for (int d = 0; d < D; d++)
+                                {
+                                    ds += dAttn[d] * val[d];
+                                    cache.dVal[l, b, s, d] += weight * dAttn[d];
+                                }
+
+                                cache.dScores[l, b, t, s] += ds;
+                            }
                         }
-                    }
-                }
 
-                for (int b = 0; b < B; b++)
-                {
-                    for (int t = 0; t < T; t++)
-                    {
-                        for (int s = 0; s < T; s++)
+                        for (int t = 0; t < T; t++)
                         {
-                            if (s > t) continue;
+                            Span<float> scoresRow = MemoryMarshal.CreateSpan(ref cache.Scores[l, b, t, 0], T);
+                            Span<float> dScoresRow = MemoryMarshal.CreateSpan(ref cache.dScores[l, b, t, 0], T);
 
-                            float ds = cache.dScores[l, b, t, s];
+                            float dot = 0f;
+                            for (int s = 0; s < T; s++)
+                                dot += dScoresRow[s] * scoresRow[s];
+
+                            for (int s = 0; s < T; s++)
+                            {
+                                float p = scoresRow[s];
+                                float gradVal = p * (dScoresRow[s] - dot) * scale;
+                                dScoresRow[s] = s > t ? 0f : gradVal;
+                            }
+                        }
+
+                        for (int t = 0; t < T; t++)
+                        {
+                            for (int s = 0; s < T; s++)
+                            {
+                                if (s > t) continue;
+                                float ds = cache.dScores[l, b, t, s];
+                                Span<float> dq = cache.GetDQSpan(l, b, t);
+                                Span<float> dk = cache.GetDKSpan(l, b, s);
+
+                                for (int d = 0; d < D; d++)
+                                {
+                                    dq[d] += ds * cache.K[l, b, s, d];
+                                    dk[d] += ds * cache.Q[l, b, t, d];
+                                }
+                            }
+                        }
+
+                        for (int t = 0; t < T; t++)
+                        {
+                            Span<float> ln1Out = cache.GetLN1OutSpan(l, b, t);
+                            Span<float> dLn1Out = cache.GetDLN1OutSpan(l, b, t);
                             Span<float> dq = cache.GetDQSpan(l, b, t);
-                            Span<float> dk = cache.GetDKSpan(l, b, s);
+                            Span<float> dk = cache.GetDKSpan(l, b, t);
+                            Span<float> dv = cache.GetDValSpan(l, b, t);
+
+                            for (int dOut = 0; dOut < D; dOut++)
+                            {
+                                float gradQ = dq[dOut];
+                                float gradK = dk[dOut];
+                                float gradV = dv[dOut];
+
+                                for (int dIn = 0; dIn < D; dIn++)
+                                {
+                                    float x = ln1Out[dIn];
+                                    grad.Wq[dIn][dOut] += x * gradQ;
+                                    grad.Wk[dIn][dOut] += x * gradK;
+                                    grad.Wv[dIn][dOut] += x * gradV;
+
+                                    dLn1Out[dIn] += Wq.W[dIn][dOut] * gradQ;
+                                    dLn1Out[dIn] += Wk.W[dIn][dOut] * gradK;
+                                    dLn1Out[dIn] += Wv.W[dIn][dOut] * gradV;
+                                }
+                            }
+                        }
+
+                        for (int t = 0; t < T; t++)
+                        {
+                            Span<float> h = cache.GetHSpan(l, b, t);
+                            Span<float> dLn1Out = cache.GetDLN1OutSpan(l, b, t);
+                            Span<float> norm = cache.GetLN1NormZSpan(l, b, t);
+                            float invStd = cache.GetLN1InvStdRef(l, b, t);
+                            Span<float> da1 = cache.GetDA1Span(l, b, t);
+
+                            LayerNormBackwardVec(h, dLn1Out, norm, invStd, ln1_g.W, grad.Ln1Gamma, grad.Ln1Beta, da1);
+                        }
+
+                        for (int t = 0; t < T; t++)
+                        {
+                            Span<float> dh = cache.GetDHSpan(l, b, t);
+                            Span<float> da1 = cache.GetDA1Span(l, b, t);
+                            Span<float> da2 = cache.GetDA2Span(l, b, t);
 
                             for (int d = 0; d < D; d++)
-                            {
-                                dq[d] += ds * cache.K[l, b, s, d];
-                                dk[d] += ds * cache.Q[l, b, t, d];
-                            }
+                                dh[d] += da1[d] + da2[d];
                         }
-                    }
-                }
 
-                for (int b = 0; b < B; b++)
-                {
-                    for (int t = 0; t < T; t++)
+                        return grad;
+                    },
+                    grad =>
                     {
-                        Span<float> ln1Out = cache.GetLN1OutSpan(l, b, t);
-                        Span<float> dLn1Out = cache.GetDLN1OutSpan(l, b, t);
-                        Span<float> dq = cache.GetDQSpan(l, b, t);
-                        Span<float> dk = cache.GetDKSpan(l, b, t);
-                        Span<float> dv = cache.GetDValSpan(l, b, t);
-
-                        for (int dOut = 0; dOut < D; dOut++)
+                        lock (gradLock)
                         {
-                            float gradQ = dq[dOut];
-                            float gradK = dk[dOut];
-                            float gradV = dv[dOut];
-
-                            for (int dIn = 0; dIn < D; dIn++)
-                            {
-                                float x = ln1Out[dIn];
-                                Wq.G[dIn][dOut] += x * gradQ;
-                                Wk.G[dIn][dOut] += x * gradK;
-                                Wv.G[dIn][dOut] += x * gradV;
-
-                                dLn1Out[dIn] += Wq.W[dIn][dOut] * gradQ;
-                                dLn1Out[dIn] += Wk.W[dIn][dOut] * gradK;
-                                dLn1Out[dIn] += Wv.W[dIn][dOut] * gradV;
-                            }
+                            grad.AccumulateInto(ln1_g, ln1_b, ln2_g, ln2_b,
+                                Wq, Wk, Wv, Wo, W1, W2, b1, b2);
                         }
-                    }
-                }
-
-                for (int b = 0; b < B; b++)
-                {
-                    for (int t = 0; t < T; t++)
-                    {
-                        Span<float> h = cache.GetHSpan(l, b, t);
-                        Span<float> dLn1Out = cache.GetDLN1OutSpan(l, b, t);
-                        Span<float> norm = cache.GetLN1NormZSpan(l, b, t);
-
-                        ref float invStd = ref cache.GetLN1InvStdRef(l, b, t);
-                        LayerNormBackwardVec(h, dLn1Out, norm, invStd, ln1_g, ln1_b, cache.GetDA1Span(l, b, t));
-
-                        Span<float> dh = cache.GetDHSpan(l, b, t);
-                        Span<float> da1 = cache.GetDA1Span(l, b, t);
-                        Span<float> da2 = cache.GetDA2Span(l, b, t);
-
-                        for (int d = 0; d < D; d++)
-                            dh[d] += da1[d] + da2[d];
-                    }
-                }
+                    });
             }
 
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
             private static void LayerNormForwardVec(
-                Span<float> input,
-                Span<float> output,
-                Span<float> normZ,
-                ref float mean,
-                ref float invStd,
-                ReadOnlySpan<float> gamma,
-                ReadOnlySpan<float> beta)
+                Span<float> input, Span<float> output, Span<float> normZ,
+                ref float mean, ref float invStd,
+                ReadOnlySpan<float> gamma, ReadOnlySpan<float> beta)
             {
                 float m = 0f;
-                for (int i = 0; i < input.Length; i++)
-                    m += input[i];
+                for (int i = 0; i < input.Length; i++) m += input[i];
                 m /= input.Length;
 
                 float variance = 0f;
@@ -626,19 +681,18 @@ namespace TinyGptDemo.Model
                 }
             }
 
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
             private static void LayerNormBackwardVec(
                 Span<float> input,
                 Span<float> dOutput,
                 Span<float> normZ,
                 float invStd,
-                Param1D gamma,
-                Param1D beta,
+                ReadOnlySpan<float> gamma,
+                float[] gammaGrad,
+                float[] betaGrad,
                 Span<float> dInput)
             {
                 int D = input.Length;
-                Span<float> gammaSpan = gamma.W;
-                Span<float> gammaGrad = gamma.G;
-                Span<float> betaGrad = beta.G;
 
                 float sumDyG = 0f;
                 float sumDyGz = 0f;
@@ -646,8 +700,7 @@ namespace TinyGptDemo.Model
                 for (int i = 0; i < D; i++)
                 {
                     float dy = dOutput[i];
-                    float g = gammaSpan[i];
-
+                    float g = gamma[i];
                     sumDyG += dy * g;
                     sumDyGz += dy * g * normZ[i];
 
@@ -656,11 +709,10 @@ namespace TinyGptDemo.Model
                 }
 
                 float scale = invStd / D;
-
                 for (int i = 0; i < D; i++)
                 {
                     float dy = dOutput[i];
-                    float g = gammaSpan[i];
+                    float g = gamma[i];
                     float z = normZ[i];
 
                     float dyg = dy * g;
@@ -669,6 +721,8 @@ namespace TinyGptDemo.Model
                 }
             }
         }
+
+        // -----------------------------------------------------------------------
 
         public sealed class ForwardCache
         {
@@ -720,12 +774,7 @@ namespace TinyGptDemo.Model
 
             public ForwardCache(int b, int t, int d, int v, int l, int dhid)
             {
-                B = b;
-                T = t;
-                D = d;
-                V = v;
-                L = l;
-                Dhid = dhid;
+                B = b; T = t; D = d; V = v; L = l; Dhid = dhid;
 
                 Logits = new float[B, T, V];
                 DLogits = new float[B, T, V];
@@ -853,6 +902,126 @@ namespace TinyGptDemo.Model
                 MemoryMarshal.CreateSpan(ref Tmp[layer, b, t, 0], D);
         }
 
+        // -----------------------------------------------------------------------
+
+        private sealed class HeadGrad
+        {
+            public float[][] Wout { get; }
+            public float[] Bout { get; }
+
+            public HeadGrad(int D, int V)
+            {
+                Wout = new float[D][];
+                for (int i = 0; i < D; i++)
+                    Wout[i] = new float[V];
+                Bout = new float[V];
+            }
+        }
+
+        private sealed class EmbedGrad
+        {
+            public float[][] Pos { get; }
+            public float[][] Tok { get; }
+
+            public EmbedGrad(int posCount, int D, int vocab)
+            {
+                Pos = InitMatrix(posCount, D);
+                Tok = InitMatrix(vocab, D);
+            }
+
+            private static float[][] InitMatrix(int rows, int cols)
+            {
+                var m = new float[rows][];
+                for (int i = 0; i < rows; i++)
+                    m[i] = new float[cols];
+                return m;
+            }
+        }
+
+        private sealed class BlockGrad
+        {
+            public float[][] Wq { get; }
+            public float[][] Wk { get; }
+            public float[][] Wv { get; }
+            public float[][] Wo { get; }
+            public float[][] W1 { get; }
+            public float[][] W2 { get; }
+            public float[] B1 { get; }
+            public float[] B2 { get; }
+
+            public float[] Ln1Gamma { get; }
+            public float[] Ln1Beta { get; }
+            public float[] Ln2Gamma { get; }
+            public float[] Ln2Beta { get; }
+
+            public BlockGrad(int D, int Dhid)
+            {
+                Wq = InitMatrix(D, D);
+                Wk = InitMatrix(D, D);
+                Wv = InitMatrix(D, D);
+                Wo = InitMatrix(D, D);
+                W1 = InitMatrix(D, Dhid);
+                W2 = InitMatrix(Dhid, D);
+                B1 = new float[Dhid];
+                B2 = new float[D];
+
+                Ln1Gamma = new float[D];
+                Ln1Beta = new float[D];
+                Ln2Gamma = new float[D];
+                Ln2Beta = new float[D];
+            }
+
+            private static float[][] InitMatrix(int rows, int cols)
+            {
+                var m = new float[rows][];
+                for (int i = 0; i < rows; i++)
+                    m[i] = new float[cols];
+                return m;
+            }
+
+            public void AccumulateInto(
+                Param1D ln1_g, Param1D ln1_b,
+                Param1D ln2_g, Param1D ln2_b,
+                Param2D WqGlobal, Param2D WkGlobal, Param2D WvGlobal, Param2D WoGlobal,
+                Param2D W1Global, Param2D W2Global,
+                Param1D b1Global, Param1D b2Global)
+            {
+                AddVector(ln1_g.G, Ln1Gamma);
+                AddVector(ln1_b.G, Ln1Beta);
+                AddVector(ln2_g.G, Ln2Gamma);
+                AddVector(ln2_b.G, Ln2Beta);
+
+                AddMatrix(WqGlobal, Wq);
+                AddMatrix(WkGlobal, Wk);
+                AddMatrix(WvGlobal, Wv);
+                AddMatrix(WoGlobal, Wo);
+                AddMatrix(W1Global, W1);
+                AddMatrix(W2Global, W2);
+
+                AddVector(b1Global.G, B1);
+                AddVector(b2Global.G, B2);
+            }
+
+            private static void AddVector(Span<float> dst, float[] src)
+            {
+                for (int i = 0; i < src.Length; i++)
+                    dst[i] += src[i];
+            }
+
+            private static void AddMatrix(Param2D dest, float[][] src)
+            {
+                for (int i = 0; i < src.Length; i++)
+                {
+                    Span<float> dstRow = dest.GradRowSpan(i);
+                    float[] srcRow = src[i];
+                    for (int j = 0; j < srcRow.Length; j++)
+                        dstRow[j] += srcRow[j];
+                }
+            }
+        }
+
+        // -----------------------------------------------------------------------
+
         private interface IParam
         {
             void AdamStep(float lr, float wd, float beta1, float beta2, float eps, int t);
@@ -872,7 +1041,6 @@ namespace TinyGptDemo.Model
                 G = new float[n];
                 m = new float[n];
                 v = new float[n];
-
                 for (int i = 0; i < n; i++) W[i] = init;
             }
 
@@ -901,10 +1069,10 @@ namespace TinyGptDemo.Model
             }
         }
 
-        private sealed class Param2D : IParam
+        public sealed class Param2D : IParam
         {
-            public float[][] W;
-            public float[][] G;
+            public float[][] W { get; }
+            public float[][] G { get; }
             private readonly float[][] m;
             private readonly float[][] v;
 
@@ -928,30 +1096,8 @@ namespace TinyGptDemo.Model
                 }
             }
 
-            public ReadOnlySpan<float> RowSpan(int index) => W[index];
-            public Span<float> GradRowSpan(int index) => G[index];
-
-            public ReadOnlySpan<float> RowSpan(int d, bool transposed) =>
-                transposed ? GetColumn(d) : W[d];
-
-            public Span<float> GradRowSpan(int d, bool transposed) =>
-                transposed ? GetGradColumn(d) : G[d];
-
-            private ReadOnlySpan<float> GetColumn(int col)
-            {
-                var column = new float[W.Length];
-                for (int i = 0; i < W.Length; i++)
-                    column[i] = W[i][col];
-                return column;
-            }
-
-            private Span<float> GetGradColumn(int col)
-            {
-                var column = new float[G.Length];
-                for (int i = 0; i < G.Length; i++)
-                    column[i] = G[i][col];
-                return column;
-            }
+            public ReadOnlySpan<float> RowSpan(int row) => W[row];
+            public Span<float> GradRowSpan(int row) => G[row];
 
             public void ZeroGrad()
             {
@@ -992,7 +1138,7 @@ namespace TinyGptDemo.Model
             private const float Eps = 1e-8f;
 
             private int t;
-            private readonly System.Collections.Generic.List<IParam> parameters = new();
+            private readonly List<IParam> parameters = new();
 
             public void Add(IParam param) => parameters.Add(param);
 

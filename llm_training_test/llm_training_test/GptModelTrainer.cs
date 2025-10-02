@@ -56,6 +56,8 @@ namespace llm_training_test
                 baseModelConfig.HiddenDim,
                 "MLP hidden dim: inner width of the feed-forward network (controls capacity & compute per layer).");
 
+
+
             var modelConfig = baseModelConfig with
             {
                 ContextLength = contextLen,
@@ -80,12 +82,16 @@ namespace llm_training_test
                 $"Max epochs (default {defaults.MaxEpochs}): ",
                 defaults.MaxEpochs,
                 "Max epochs: how many passes over the dataset to run (higher = longer training, potentially better fit).");
-
+            int logEvery = CliPrompts.ReadInt(
+                $"Log every N epochs (default {defaults.LogEvery}): ",
+                defaults.LogEvery,
+                "How often to print progress updates (smaller = more feedback, tiny overhead).");
             var trainingConfig = defaults with
             {
                 BatchSize = batchSize,
                 LearningRate = learningRate,
-                MaxEpochs = maxEpochs
+                MaxEpochs = maxEpochs,
+                LogEvery = logEvery
             };
 
             var model = new TinyGpt(dataset.VocabSize, modelConfig, rng);
