@@ -10,7 +10,6 @@ namespace TinyGptDemo.Model
         private readonly int D;
         private readonly int L;
         private readonly int Dhid;
-        private readonly Random rng;
 
         private readonly Param2D tokEmb;
         private readonly Param2D posEmb;
@@ -26,18 +25,15 @@ namespace TinyGptDemo.Model
             D = config.EmbeddingDim;
             L = config.Layers;
             Dhid = config.HiddenDim;
-            this.rng = rng;
 
             tokEmb = new Param2D(V, D, rng, 0.02f);
             posEmb = new Param2D(Tctx, D, rng, 0.02f);
 
             blocks = new Block[L];
             for (int i = 0; i < L; i++)
-            {
                 blocks[i] = new Block(D, Dhid, rng);
-            }
 
-            Wout = new Param2D(V, D, rng, 0.02f);
+            Wout = new Param2D(D, V, rng, 0.02f);
             Bout = new Param1D(V);
 
             adam = new Adam();
@@ -45,11 +41,7 @@ namespace TinyGptDemo.Model
             adam.Add(posEmb);
             adam.Add(Wout);
             adam.Add(Bout);
-
-            foreach (var block in blocks)
-            {
-                block.Register(adam);
-            }
+            foreach (var block in blocks) block.Register(adam);
         }
 
         public ForwardCache Forward(int[,] X)
@@ -58,9 +50,7 @@ namespace TinyGptDemo.Model
             int T = X.GetLength(1);
 
             if (T > Tctx)
-            {
                 throw new ArgumentException($"Sequence length {T} exceeds model context window {Tctx}.");
-            }
 
             var cache = new ForwardCache(B, T, D, V, L, Dhid);
             cache.CaptureInputIds(X);
@@ -74,16 +64,12 @@ namespace TinyGptDemo.Model
                     ReadOnlySpan<float> pos = posEmb.RowSpan(t);
 
                     for (int d = 0; d < D; d++)
-                    {
                         h0[d] = tok[d] + pos[d];
-                    }
                 }
             }
 
             for (int l = 0; l < L; l++)
-            {
                 blocks[l].Forward(cache, l);
-            }
 
             for (int b = 0; b < B; b++)
             {
@@ -93,14 +79,10 @@ namespace TinyGptDemo.Model
 
                     for (int v = 0; v < V; v++)
                     {
-                        Span<float> wRow = Wout.RowSpan(v);
                         float sum = Bout.W[v];
-
+                        ReadOnlySpan<float> wRow = Wout.RowSpan(d: v, transposed: true); // treat columns as outputs
                         for (int d = 0; d < D; d++)
-                        {
                             sum += h[d] * wRow[d];
-                        }
-
                         cache.Logits[b, t, v] = sum;
                     }
                 }
@@ -118,40 +100,34 @@ namespace TinyGptDemo.Model
             posEmb.ZeroGrad();
             Wout.ZeroGrad();
             Bout.ZeroGrad();
-
-            for (int i = 0; i < L; i++)
-            {
-                blocks[i].ZeroGrad();
-            }
+            foreach (var block in blocks) block.ZeroGrad();
 
             for (int b = 0; b < B; b++)
             {
                 for (int t = 0; t < T; t++)
                 {
-                    Span<float> dh = cache.GetDHSpan(L, b, t);
                     ReadOnlySpan<float> h = cache.GetHSpan(L, b, t);
+                    Span<float> dh = cache.GetDHSpan(L, b, t);
 
                     for (int v = 0; v < V; v++)
                     {
                         float grad = cache.DLogits[b, t, v];
                         Bout.G[v] += grad;
 
-                        Span<float> wRow = Wout.RowSpan(v);
-                        Span<float> gRow = Wout.GradRowSpan(v);
+                        ReadOnlySpan<float> wCol = Wout.RowSpan(d: v, transposed: true);
+                        Span<float> gCol = Wout.GradRowSpan(d: v, transposed: true);
 
                         for (int d = 0; d < D; d++)
                         {
-                            gRow[d] += h[d] * grad;
-                            dh[d] += wRow[d] * grad;
+                            gCol[d] += h[d] * grad;
+                            dh[d] += wCol[d] * grad;
                         }
                     }
                 }
             }
 
             for (int l = L - 1; l >= 0; l--)
-            {
                 blocks[l].Backward(cache, l);
-            }
 
             for (int b = 0; b < B; b++)
             {
@@ -209,8 +185,8 @@ namespace TinyGptDemo.Model
                 Wv = new Param2D(D, D, rng, scale);
                 Wo = new Param2D(D, D, rng, scale);
 
-                W1 = new Param2D(Dhid, D, rng, scale);
-                W2 = new Param2D(D, Dhid, rng, scale);
+                W1 = new Param2D(D, Dhid, rng, scale);
+                W2 = new Param2D(Dhid, D, rng, scale);
                 b1 = new Param1D(Dhid);
                 b2 = new Param1D(D);
             }
@@ -272,22 +248,14 @@ namespace TinyGptDemo.Model
 
                         for (int dOut = 0; dOut < D; dOut++)
                         {
-                            ReadOnlySpan<float> wq = Wq.RowSpan(dOut);
-                            ReadOnlySpan<float> wk = Wk.RowSpan(dOut);
-                            ReadOnlySpan<float> wv = Wv.RowSpan(dOut);
-
-                            float sumQ = 0f;
-                            float sumK = 0f;
-                            float sumV = 0f;
-
+                            float sumQ = 0f, sumK = 0f, sumV = 0f;
                             for (int dIn = 0; dIn < D; dIn++)
                             {
                                 float x = ln1Out[dIn];
-                                sumQ += x * wq[dIn];
-                                sumK += x * wk[dIn];
-                                sumV += x * wv[dIn];
+                                sumQ += x * Wq.W[dIn][dOut];
+                                sumK += x * Wk.W[dIn][dOut];
+                                sumV += x * Wv.W[dIn][dOut];
                             }
-
                             q[dOut] = sumQ;
                             k[dOut] = sumK;
                             v[dOut] = sumV;
@@ -306,18 +274,9 @@ namespace TinyGptDemo.Model
                             Span<float> k = cache.GetKSpan(l, b, s);
 
                             for (int d = 0; d < D; d++)
-                            {
                                 score += q[d] * k[d];
-                            }
 
-                            if (s > t)
-                            {
-                                cache.Scores[l, b, t, s] = float.NegativeInfinity;
-                            }
-                            else
-                            {
-                                cache.Scores[l, b, t, s] = score * scale;
-                            }
+                            cache.Scores[l, b, t, s] = s > t ? float.NegativeInfinity : score * scale;
                         }
 
                         float max = float.NegativeInfinity;
@@ -339,9 +298,7 @@ namespace TinyGptDemo.Model
                         if (sum == 0f) sum = 1f;
 
                         for (int s = 0; s < T; s++)
-                        {
                             cache.Scores[l, b, t, s] /= sum;
-                        }
                     }
                 }
 
@@ -355,9 +312,7 @@ namespace TinyGptDemo.Model
                         {
                             float sum = 0f;
                             for (int s = 0; s < T; s++)
-                            {
                                 sum += cache.Scores[l, b, t, s] * cache.Val[l, b, s, d];
-                            }
                             attnOut[d] = sum;
                         }
                     }
@@ -369,29 +324,20 @@ namespace TinyGptDemo.Model
                     {
                         Span<float> attnOut = cache.GetAttnOutSpan(l, b, t);
                         Span<float> h = cache.GetHSpan(l, b, t);
-
                         Span<float> tmp = cache.GetTmpSpan(l, b, t);
                         tmp.Clear();
 
                         for (int dOut = 0; dOut < D; dOut++)
                         {
-                            ReadOnlySpan<float> wo = Wo.RowSpan(dOut);
                             float sum = 0f;
-
                             for (int dIn = 0; dIn < D; dIn++)
-                            {
-                                sum += attnOut[dIn] * wo[dIn];
-                            }
-
+                                sum += attnOut[dIn] * Wo.W[dIn][dOut];
                             tmp[dOut] = sum;
                         }
 
                         Span<float> hNext = cache.GetHSpan(l + 1, b, t);
-
                         for (int d = 0; d < D; d++)
-                        {
                             hNext[d] = h[d] + tmp[d];
-                        }
                     }
                 }
 
@@ -413,14 +359,9 @@ namespace TinyGptDemo.Model
 
                         for (int hIdx = 0; hIdx < Dhid; hIdx++)
                         {
-                            ReadOnlySpan<float> w1 = W1.RowSpan(hIdx);
                             float sum = b1.W[hIdx];
-
                             for (int dIn = 0; dIn < D; dIn++)
-                            {
-                                sum += ln2Out[dIn] * w1[dIn];
-                            }
-
+                                sum += ln2Out[dIn] * W1.W[dIn][hIdx];
                             m1[hIdx] = sum;
                             mask[hIdx] = sum > 0f ? 1f : 0f;
                         }
@@ -430,24 +371,18 @@ namespace TinyGptDemo.Model
 
                         for (int dOut = 0; dOut < D; dOut++)
                         {
-                            ReadOnlySpan<float> w2 = W2.RowSpan(dOut);
                             float sum = b2.W[dOut];
-
                             for (int hIdx = 0; hIdx < Dhid; hIdx++)
                             {
-                                float activated = m1[hIdx] > 0f ? m1[hIdx] : 0f;
-                                sum += activated * w2[hIdx];
+                                float act = m1[hIdx] > 0f ? m1[hIdx] : 0f;
+                                sum += act * W2.W[hIdx][dOut];
                             }
-
                             tmp[dOut] = sum;
                         }
 
                         Span<float> hNext = cache.GetHSpan(l + 1, b, t);
-
                         for (int d = 0; d < D; d++)
-                        {
                             hNext[d] += tmp[d];
-                        }
                     }
                 }
             }
@@ -466,21 +401,19 @@ namespace TinyGptDemo.Model
                         Span<float> dh = cache.GetDHSpan(l, b, t);
 
                         for (int d = 0; d < D; d++)
-                        {
                             dh[d] += dhNext[d];
-                        }
 
                         Span<float> ln2Out = cache.GetLN2OutSpan(l, b, t);
                         Span<float> dLn2Out = cache.GetDLN2OutSpan(l, b, t);
                         Span<float> m1 = cache.GetM1Span(l, b, t);
                         Span<float> mask = cache.GetM1MaskSpan(l, b, t);
-
                         Span<float> tmp = cache.GetTmpSpan(l, b, t);
 
                         for (int dOut = 0; dOut < D; dOut++)
                         {
-                            tmp[dOut] = dhNext[dOut];
-                            b2.G[dOut] += dhNext[dOut];
+                            float grad = dhNext[dOut];
+                            tmp[dOut] = grad;
+                            b2.G[dOut] += grad;
                         }
 
                         Span<float> dHidden = cache.GetDM1Span(l, b, t);
@@ -488,37 +421,26 @@ namespace TinyGptDemo.Model
 
                         for (int dOut = 0; dOut < D; dOut++)
                         {
-                            ReadOnlySpan<float> w2 = W2.RowSpan(dOut);
-                            Span<float> gRow = W2.GradRowSpan(dOut);
                             float grad = tmp[dOut];
-
                             for (int hIdx = 0; hIdx < Dhid; hIdx++)
                             {
-                                float activated = m1[hIdx] > 0f ? m1[hIdx] : 0f;
-                                gRow[hIdx] += activated * grad;
-                                dHidden[hIdx] += w2[hIdx] * grad;
+                                float act = m1[hIdx] > 0f ? m1[hIdx] : 0f;
+                                W2.G[hIdx][dOut] += act * grad;
+                                dHidden[hIdx] += W2.W[hIdx][dOut] * grad;
                             }
                         }
 
                         for (int hIdx = 0; hIdx < Dhid; hIdx++)
-                        {
-                            if (mask[hIdx] == 0f)
-                            {
-                                dHidden[hIdx] = 0f;
-                            }
-                        }
+                            if (mask[hIdx] == 0f) dHidden[hIdx] = 0f;
 
                         for (int hIdx = 0; hIdx < Dhid; hIdx++)
                         {
-                            b1.G[hIdx] += dHidden[hIdx];
-                            Span<float> w1Grad = W1.GradRowSpan(hIdx);
-                            ReadOnlySpan<float> w1 = W1.RowSpan(hIdx);
                             float grad = dHidden[hIdx];
-
+                            b1.G[hIdx] += grad;
                             for (int dIn = 0; dIn < D; dIn++)
                             {
-                                w1Grad[dIn] += ln2Out[dIn] * grad;
-                                dLn2Out[dIn] += w1[dIn] * grad;
+                                W1.G[dIn][hIdx] += ln2Out[dIn] * grad;
+                                dLn2Out[dIn] += W1.W[dIn][hIdx] * grad;
                             }
                         }
                     }
@@ -533,7 +455,6 @@ namespace TinyGptDemo.Model
                         Span<float> norm = cache.GetLN2NormZSpan(l, b, t);
 
                         ref float invStd = ref cache.GetLN2InvStdRef(l, b, t);
-
                         LayerNormBackwardVec(h, dLn2Out, norm, invStd, ln2_g, ln2_b, cache.GetDA2Span(l, b, t));
                     }
                 }
@@ -544,22 +465,20 @@ namespace TinyGptDemo.Model
                     {
                         Span<float> dh = cache.GetDA2Span(l, b, t);
                         Span<float> attnOut = cache.GetAttnOutSpan(l, b, t);
-
                         Span<float> dAttn = cache.GetDAttnOutSpan(l, b, t);
                         dAttn.Clear();
 
                         for (int dOut = 0; dOut < D; dOut++)
                         {
-                            Span<float> wRow = Wo.RowSpan(dOut);
-                            Span<float> gRow = Wo.GradRowSpan(dOut);
                             float grad = cache.GetDHSpan(l, b, t)[dOut];
-
                             for (int dIn = 0; dIn < D; dIn++)
                             {
-                                gRow[dIn] += attnOut[dIn] * grad;
-                                dAttn[dIn] += wRow[dIn] * grad;
+                                W2D(Wo, dIn, dOut, attnOut[dIn], grad);
+                                dAttn[dIn] += Wo.W[dIn][dOut] * grad;
                             }
                         }
+
+                        void W2D(Param2D wo, int i, int j, float a, float g) => wo.G[i][j] += a * g;
                     }
                 }
 
@@ -590,9 +509,7 @@ namespace TinyGptDemo.Model
                     {
                         float dot = 0f;
                         for (int s = 0; s < T; s++)
-                        {
                             dot += cache.dScores[l, b, t, s] * cache.Scores[l, b, t, s];
-                        }
 
                         for (int s = 0; s < T; s++)
                         {
@@ -629,20 +546,12 @@ namespace TinyGptDemo.Model
                     {
                         Span<float> ln1Out = cache.GetLN1OutSpan(l, b, t);
                         Span<float> dLn1Out = cache.GetDLN1OutSpan(l, b, t);
-
                         Span<float> dq = cache.GetDQSpan(l, b, t);
                         Span<float> dk = cache.GetDKSpan(l, b, t);
                         Span<float> dv = cache.GetDValSpan(l, b, t);
 
                         for (int dOut = 0; dOut < D; dOut++)
                         {
-                            Span<float> gQ = Wq.GradRowSpan(dOut);
-                            Span<float> gK = Wk.GradRowSpan(dOut);
-                            Span<float> gV = Wv.GradRowSpan(dOut);
-                            ReadOnlySpan<float> wQ = Wq.RowSpan(dOut);
-                            ReadOnlySpan<float> wK = Wk.RowSpan(dOut);
-                            ReadOnlySpan<float> wV = Wv.RowSpan(dOut);
-
                             float gradQ = dq[dOut];
                             float gradK = dk[dOut];
                             float gradV = dv[dOut];
@@ -650,13 +559,13 @@ namespace TinyGptDemo.Model
                             for (int dIn = 0; dIn < D; dIn++)
                             {
                                 float x = ln1Out[dIn];
-                                gQ[dIn] += x * gradQ;
-                                gK[dIn] += x * gradK;
-                                gV[dIn] += x * gradV;
+                                Wq.G[dIn][dOut] += x * gradQ;
+                                Wk.G[dIn][dOut] += x * gradK;
+                                Wv.G[dIn][dOut] += x * gradV;
 
-                                dLn1Out[dIn] += wQ[dIn] * gradQ;
-                                dLn1Out[dIn] += wK[dIn] * gradK;
-                                dLn1Out[dIn] += wV[dIn] * gradV;
+                                dLn1Out[dIn] += Wq.W[dIn][dOut] * gradQ;
+                                dLn1Out[dIn] += Wk.W[dIn][dOut] * gradK;
+                                dLn1Out[dIn] += Wv.W[dIn][dOut] * gradV;
                             }
                         }
                     }
@@ -671,7 +580,6 @@ namespace TinyGptDemo.Model
                         Span<float> norm = cache.GetLN1NormZSpan(l, b, t);
 
                         ref float invStd = ref cache.GetLN1InvStdRef(l, b, t);
-
                         LayerNormBackwardVec(h, dLn1Out, norm, invStd, ln1_g, ln1_b, cache.GetDA1Span(l, b, t));
 
                         Span<float> dh = cache.GetDHSpan(l, b, t);
@@ -679,9 +587,7 @@ namespace TinyGptDemo.Model
                         Span<float> da2 = cache.GetDA2Span(l, b, t);
 
                         for (int d = 0; d < D; d++)
-                        {
                             dh[d] += da1[d] + da2[d];
-                        }
                     }
                 }
             }
@@ -697,9 +603,7 @@ namespace TinyGptDemo.Model
             {
                 float m = 0f;
                 for (int i = 0; i < input.Length; i++)
-                {
                     m += input[i];
-                }
                 m /= input.Length;
 
                 float variance = 0f;
@@ -866,12 +770,8 @@ namespace TinyGptDemo.Model
             public void CaptureInputIds(int[,] X)
             {
                 for (int b = 0; b < B; b++)
-                {
                     for (int t = 0; t < T; t++)
-                    {
                         XTokIds[b, t] = X[b, t];
-                    }
-                }
             }
 
             public Span<float> GetHSpan(int layer, int b, int t) =>
@@ -955,7 +855,7 @@ namespace TinyGptDemo.Model
 
         private interface IParam
         {
-            void AdamStep(float lr, float wd, float b1, float b2, float eps, int t);
+            void AdamStep(float lr, float wd, float beta1, float beta2, float eps, int t);
             void ZeroGrad();
         }
 
@@ -963,39 +863,36 @@ namespace TinyGptDemo.Model
         {
             public float[] W;
             public float[] G;
-            public float[] M;
-            public float[] V;
+            private readonly float[] m;
+            private readonly float[] v;
 
             public Param1D(int n, float init = 0f)
             {
                 W = new float[n];
                 G = new float[n];
-                M = new float[n];
-                V = new float[n];
+                m = new float[n];
+                v = new float[n];
 
-                for (int i = 0; i < n; i++)
-                {
-                    W[i] = init;
-                }
+                for (int i = 0; i < n; i++) W[i] = init;
             }
 
             public void ZeroGrad() => Array.Clear(G, 0, G.Length);
 
-            public void AdamStep(float lr, float wd, float b1, float b2, float eps, int t)
+            public void AdamStep(float lr, float wd, float beta1, float beta2, float eps, int t)
             {
-                float bc1 = 1f - MathF.Pow(b1, t);
-                float bc2 = 1f - MathF.Pow(b2, t);
+                float bc1 = 1f - MathF.Pow(beta1, t);
+                float bc2 = 1f - MathF.Pow(beta2, t);
 
                 for (int i = 0; i < W.Length; i++)
                 {
                     float grad = G[i];
                     if (wd > 0f) grad += wd * W[i];
 
-                    M[i] = b1 * M[i] + (1f - b1) * grad;
-                    V[i] = b2 * V[i] + (1f - b2) * grad * grad;
+                    m[i] = beta1 * m[i] + (1f - beta1) * grad;
+                    v[i] = beta2 * v[i] + (1f - beta2) * grad * grad;
 
-                    float mHat = M[i] / bc1;
-                    float vHat = V[i] / bc2;
+                    float mHat = m[i] / bc1;
+                    float vHat = v[i] / bc2;
 
                     W[i] -= lr * (mHat / (MathF.Sqrt(vHat) + eps));
                 }
@@ -1006,71 +903,79 @@ namespace TinyGptDemo.Model
 
         private sealed class Param2D : IParam
         {
-            private readonly int rows;
-            private readonly int cols;
-
             public float[][] W;
             public float[][] G;
-            public float[][] M;
-            public float[][] V;
+            private readonly float[][] m;
+            private readonly float[][] v;
 
             public Param2D(int rows, int cols, Random rng, float scale)
             {
-                this.rows = rows;
-                this.cols = cols;
-
                 W = new float[rows][];
                 G = new float[rows][];
-                M = new float[rows][];
-                V = new float[rows][];
+                m = new float[rows][];
+                v = new float[rows][];
 
                 for (int i = 0; i < rows; i++)
                 {
                     W[i] = new float[cols];
                     G[i] = new float[cols];
-                    M[i] = new float[cols];
-                    V[i] = new float[cols];
+                    m[i] = new float[cols];
+                    v[i] = new float[cols];
 
-                    for (int j = 0; j < cols; j++)
-                    {
-                        W[i][j] = scale > 0f
-                            ? (float)((rng.NextDouble() * 2 - 1) * scale)
-                            : 0f;
-                    }
+                    if (scale > 0f)
+                        for (int j = 0; j < cols; j++)
+                            W[i][j] = (float)((rng.NextDouble() * 2 - 1) * scale);
                 }
             }
 
-            public int Rows => rows;
-            public int Cols => cols;
+            public ReadOnlySpan<float> RowSpan(int index) => W[index];
+            public Span<float> GradRowSpan(int index) => G[index];
 
-            public Span<float> RowSpan(int r) => W[r];
-            public Span<float> GradRowSpan(int r) => G[r];
+            public ReadOnlySpan<float> RowSpan(int d, bool transposed) =>
+                transposed ? GetColumn(d) : W[d];
+
+            public Span<float> GradRowSpan(int d, bool transposed) =>
+                transposed ? GetGradColumn(d) : G[d];
+
+            private ReadOnlySpan<float> GetColumn(int col)
+            {
+                var column = new float[W.Length];
+                for (int i = 0; i < W.Length; i++)
+                    column[i] = W[i][col];
+                return column;
+            }
+
+            private Span<float> GetGradColumn(int col)
+            {
+                var column = new float[G.Length];
+                for (int i = 0; i < G.Length; i++)
+                    column[i] = G[i][col];
+                return column;
+            }
 
             public void ZeroGrad()
             {
-                for (int i = 0; i < rows; i++)
-                {
-                    Array.Clear(G[i], 0, cols);
-                }
+                for (int i = 0; i < G.Length; i++)
+                    Array.Clear(G[i], 0, G[i].Length);
             }
 
-            public void AdamStep(float lr, float wd, float b1, float b2, float eps, int t)
+            public void AdamStep(float lr, float wd, float beta1, float beta2, float eps, int t)
             {
-                float bc1 = 1f - MathF.Pow(b1, t);
-                float bc2 = 1f - MathF.Pow(b2, t);
+                float bc1 = 1f - MathF.Pow(beta1, t);
+                float bc2 = 1f - MathF.Pow(beta2, t);
 
-                for (int i = 0; i < rows; i++)
+                for (int i = 0; i < W.Length; i++)
                 {
-                    for (int j = 0; j < cols; j++)
+                    for (int j = 0; j < W[i].Length; j++)
                     {
                         float grad = G[i][j];
                         if (wd > 0f) grad += wd * W[i][j];
 
-                        M[i][j] = b1 * M[i][j] + (1f - b1) * grad;
-                        V[i][j] = b2 * V[i][j] + (1f - b2) * grad * grad;
+                        m[i][j] = beta1 * m[i][j] + (1f - beta1) * grad;
+                        v[i][j] = beta2 * v[i][j] + (1f - beta2) * grad * grad;
 
-                        float mHat = M[i][j] / bc1;
-                        float vHat = V[i][j] / bc2;
+                        float mHat = m[i][j] / bc1;
+                        float vHat = v[i][j] / bc2;
 
                         W[i][j] -= lr * (mHat / (MathF.Sqrt(vHat) + eps));
                     }
@@ -1095,9 +1000,7 @@ namespace TinyGptDemo.Model
             {
                 t++;
                 foreach (var param in parameters)
-                {
                     param.AdamStep(lr, wd, Beta1, Beta2, Eps, t);
-                }
             }
         }
     }
