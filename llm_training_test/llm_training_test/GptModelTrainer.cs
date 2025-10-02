@@ -123,16 +123,45 @@ namespace llm_training_test
 
         private static string PromptForTrainingText(bool sentenceMode)
         {
-            Console.WriteLine("Enter training text (leave empty to use default):");
-            string? text = Console.ReadLine();
-            if (string.IsNullOrWhiteSpace(text))
+            Console.WriteLine("Enter training text, OR type 'file' to load a .txt file (leave empty to use default):");
+            string? input = Console.ReadLine();
+
+            if (string.IsNullOrWhiteSpace(input))
             {
                 return sentenceMode
                     ? "Hello world. This is a tiny demo."
                     : "hello world hello";
             }
 
-            return text;
+            if (input.Trim().Equals("file", StringComparison.OrdinalIgnoreCase))
+            {
+                Console.WriteLine("Enter full path to your .txt file:");
+                string? path = Console.ReadLine();
+
+                if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                {
+                    Console.WriteLine("Invalid file path. Falling back to default text.");
+                    return sentenceMode
+                        ? "Hello world. This is a tiny demo."
+                        : "hello world hello";
+                }
+
+                try
+                {
+                    string fileText = File.ReadAllText(path);
+                    Console.WriteLine($"Loaded {fileText.Length} characters from file.");
+                    return fileText;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error reading file: {ex.Message}");
+                    return sentenceMode
+                        ? "Hello world. This is a tiny demo."
+                        : "hello world hello";
+                }
+            }
+
+            return input;
         }
     }
 }
