@@ -20,6 +20,12 @@ namespace TinyGptDemo.Model
         private readonly Block[] blocks;
         private readonly Param2D Wout;
         private readonly Param1D Bout;
+
+        private readonly Param1D Wstart;
+        private readonly Param1D Wend;
+        private readonly Param1D Bstart;
+        private readonly Param1D Bend;
+
         private readonly Adam adam;
 
         private readonly object headGradLock = new();
@@ -46,11 +52,20 @@ namespace TinyGptDemo.Model
             Wout = new Param2D(D, V, rng, 0.02f);
             Bout = new Param1D(V);
 
+            Wstart = new Param1D(D);
+            Wend = new Param1D(D);
+            Bstart = new Param1D(1);
+            Bend = new Param1D(1);
+
             adam = new Adam();
             adam.Add(tokEmb);
             adam.Add(posEmb);
             adam.Add(Wout);
             adam.Add(Bout);
+            adam.Add(Wstart);
+            adam.Add(Wend);
+            adam.Add(Bstart);
+            adam.Add(Bend);
             foreach (var block in blocks) block.Register(adam);
         }
 
@@ -84,6 +99,17 @@ namespace TinyGptDemo.Model
                 for (int t = 0; t < T; t++)
                 {
                     ReadOnlySpan<float> h = cache.GetHSpan(L, b, t);
+
+                    float s = Bstart.W[0];
+                    float e = Bend.W[0];
+                    for (int d = 0; d < D; d++)
+                    {
+                        s += h[d] * Wstart.W[d];
+                        e += h[d] * Wend.W[d];
+                    }
+                    cache.StartLogits[b, t] = s;
+                    cache.EndLogits[b, t] = e;
+
                     for (int v = 0; v < V; v++)
                     {
                         float sum = Bout.W[v];
@@ -106,6 +132,10 @@ namespace TinyGptDemo.Model
             posEmb.ZeroGrad();
             Wout.ZeroGrad();
             Bout.ZeroGrad();
+            Wstart.ZeroGrad();
+            Wend.ZeroGrad();
+            Bstart.ZeroGrad();
+            Bend.ZeroGrad();
             foreach (var block in blocks) block.ZeroGrad();
 
             Parallel.For<HeadGrad>(0, B, parallelOpts,
@@ -117,6 +147,19 @@ namespace TinyGptDemo.Model
                         Span<float> dh = cache.GetDHSpan(L, b, t);
                         dh.Clear();
                         ReadOnlySpan<float> h = cache.GetHSpan(L, b, t);
+
+                        float gradStart = cache.DStartLogits[b, t];
+                        float gradEnd = cache.DEndLogits[b, t];
+
+                        local.Bstart += gradStart;
+                        local.Bend += gradEnd;
+                        for (int d = 0; d < D; d++)
+                        {
+                            local.Wstart[d] += h[d] * gradStart;
+                            local.Wend[d] += h[d] * gradEnd;
+                            dh[d] += Wstart.W[d] * gradStart;
+                            dh[d] += Wend.W[d] * gradEnd;
+                        }
 
                         for (int v = 0; v < V; v++)
                         {
@@ -137,6 +180,15 @@ namespace TinyGptDemo.Model
                 {
                     lock (headGradLock)
                     {
+                        Bstart.G[0] += local.Bstart;
+                        Bend.G[0] += local.Bend;
+
+                        for (int d = 0; d < D; d++)
+                        {
+                            Wstart.G[d] += local.Wstart[d];
+                            Wend.G[d] += local.Wend[d];
+                        }
+
                         for (int v = 0; v < V; v++)
                             Bout.G[v] += local.Bout[v];
 
@@ -201,7 +253,114 @@ namespace TinyGptDemo.Model
 
         public void AdamStep(float lr, float wd) => adam.Step(lr, wd);
 
-        // -----------------------------------------------------------------------
+        public sealed class KvCache
+        {
+            public readonly int Layers;
+            public readonly int Tctx;
+            public readonly int D;
+            public readonly float[,,] K; // [L, T, D]
+            public readonly float[,,] V; // [L, T, D]
+
+            public KvCache(int layers, int tctx, int d)
+            {
+                Layers = layers;
+                Tctx = tctx;
+                D = d;
+                K = new float[layers, tctx, d];
+                V = new float[layers, tctx, d];
+            }
+        }
+
+        public int[] Generate(int[] prompt, int maxNewTokens, int? eosToken = null)
+        {
+            if (prompt.Length > Tctx) throw new ArgumentException("Prompt exceeds context length.");
+            var kv = new KvCache(L, Tctx, D);
+
+            var logits = new float[V];
+            int pos = 0;
+
+            var h = new float[D];
+
+            for (int i = 0; i < prompt.Length; i++)
+            {
+                int token = prompt[i];
+                ReadOnlySpan<float> tok = tokEmb.RowSpan(token);
+                ReadOnlySpan<float> posRow = posEmb.RowSpan(pos);
+                for (int d = 0; d < D; d++) h[d] = tok[d] + posRow[d];
+
+                for (int l = 0; l < L; l++)
+                    blocks[l].ForwardNext(h, pos, l, kv);
+
+                for (int v = 0; v < V; v++)
+                {
+                    float sum = Bout.W[v];
+                    for (int d = 0; d < D; d++)
+                        sum += h[d] * Wout.W[d][v];
+                    logits[v] = sum;
+                }
+
+                pos++;
+            }
+
+            var result = new List<int>(prompt.Length + maxNewTokens);
+            result.AddRange(prompt);
+
+            for (int step = 0; step < maxNewTokens; step++)
+            {
+                int next = Argmax(logits);
+                if (eosToken.HasValue && next == eosToken.Value) break;
+                result.Add(next);
+
+                if (pos >= Tctx) break;
+
+                ReadOnlySpan<float> tok = tokEmb.RowSpan(next);
+                ReadOnlySpan<float> posRow = posEmb.RowSpan(pos);
+                for (int d = 0; d < D; d++) h[d] = tok[d] + posRow[d];
+
+                for (int l = 0; l < L; l++)
+                    blocks[l].ForwardNext(h, pos, l, kv);
+
+                for (int v = 0; v < V; v++)
+                {
+                    float sum = Bout.W[v];
+                    for (int d = 0; d < D; d++)
+                        sum += h[d] * Wout.W[d][v];
+                    logits[v] = sum;
+                }
+
+                pos++;
+            }
+
+            return result.ToArray();
+
+            static int Argmax(float[] arr)
+            {
+                int idx = 0;
+                float best = arr[0];
+                for (int i = 1; i < arr.Length; i++)
+                    if (arr[i] > best) { best = arr[i]; idx = i; }
+                return idx;
+            }
+        }
+
+        public (int start, int end) PredictSpan(int[] tokens)
+        {
+            var X = new int[1, tokens.Length];
+            for (int i = 0; i < tokens.Length; i++) X[0, i] = tokens[i];
+            var cache = Forward(X);
+            int bestS = 0, bestE = 0;
+            float sMax = float.NegativeInfinity;
+            float eMax = float.NegativeInfinity;
+            for (int t = 0; t < tokens.Length; t++)
+            {
+                float s = cache.StartLogits[0, t];
+                float e = cache.EndLogits[0, t];
+                if (s > sMax) { sMax = s; bestS = t; }
+                if (e > eMax) { eMax = e; bestE = t; }
+            }
+            if (bestE < bestS) bestE = bestS;
+            return (bestS, bestE);
+        }
 
         private sealed class Block
         {
@@ -720,9 +879,140 @@ namespace TinyGptDemo.Model
                     dInput[i] += scale * dx;
                 }
             }
-        }
 
-        // -----------------------------------------------------------------------
+            public void ForwardNext(float[] h, int t, int l, KvCache kv)
+            {
+                float scale = 1f / MathF.Sqrt(D);
+
+                float m1 = 0f;
+                for (int i = 0; i < D; i++) m1 += h[i];
+                m1 /= D;
+
+                float var1 = 0f;
+                for (int i = 0; i < D; i++)
+                {
+                    float u = h[i] - m1;
+                    var1 += u * u;
+                }
+                var1 /= D;
+                float invStd1 = 1f / MathF.Sqrt(var1 + 1e-5f);
+
+                var ln1Out = new float[D];
+                for (int i = 0; i < D; i++)
+                {
+                    float z = (h[i] - m1) * invStd1;
+                    ln1Out[i] = z * ln1_g.W[i] + ln1_b.W[i];
+                }
+
+                var q = new float[D];
+                var k = new float[D];
+                var v = new float[D];
+
+                for (int dOut = 0; dOut < D; dOut++)
+                {
+                    float sumQ = 0f, sumK = 0f, sumV = 0f;
+                    for (int dIn = 0; dIn < D; dIn++)
+                    {
+                        float x = ln1Out[dIn];
+                        sumQ += x * Wq.W[dIn][dOut];
+                        sumK += x * Wk.W[dIn][dOut];
+                        sumV += x * Wv.W[dIn][dOut];
+                    }
+                    q[dOut] = sumQ;
+                    k[dOut] = sumK;
+                    v[dOut] = sumV;
+                }
+
+                for (int d = 0; d < D; d++)
+                {
+                    kv.K[l, t, d] = k[d];
+                    kv.V[l, t, d] = v[d];
+                }
+
+                var scores = new float[t + 1];
+                float max = float.NegativeInfinity;
+                for (int s = 0; s <= t; s++)
+                {
+                    float sc = 0f;
+                    for (int d = 0; d < D; d++) sc += q[d] * kv.K[l, s, d];
+                    sc *= scale;
+                    scores[s] = sc;
+                    if (sc > max) max = sc;
+                }
+
+                float sumExp = 0f;
+                for (int s = 0; s <= t; s++)
+                {
+                    float e = MathF.Exp(scores[s] - max);
+                    scores[s] = e;
+                    sumExp += e;
+                }
+                float invSum = 1f / (sumExp == 0f ? 1f : sumExp);
+
+                var attnOut = new float[D];
+                for (int s = 0; s <= t; s++)
+                {
+                    float w = scores[s] * invSum;
+                    for (int d = 0; d < D; d++)
+                        attnOut[d] += w * kv.V[l, s, d];
+                }
+
+                var tmp = new float[D];
+                for (int dOut = 0; dOut < D; dOut++)
+                {
+                    float sum = 0f;
+                    for (int dIn = 0; dIn < D; dIn++)
+                        sum += attnOut[dIn] * Wo.W[dIn][dOut];
+                    tmp[dOut] = sum;
+                }
+                for (int d = 0; d < D; d++) h[d] = h[d] + tmp[d];
+
+                float m2 = 0f;
+                for (int i = 0; i < D; i++) m2 += h[i];
+                m2 /= D;
+
+                float var2 = 0f;
+                for (int i = 0; i < D; i++)
+                {
+                    float u = h[i] - m2;
+                    var2 += u * u;
+                }
+                var2 /= D;
+                float invStd2 = 1f / MathF.Sqrt(var2 + 1e-5f);
+
+                var ln2Out = new float[D];
+                for (int i = 0; i < D; i++)
+                {
+                    float z = (h[i] - m2) * invStd2;
+                    ln2Out[i] = z * ln2_g.W[i] + ln2_b.W[i];
+                }
+
+                var m1vec = new float[Dhid];
+                var mask = new float[Dhid];
+                for (int hIdx = 0; hIdx < Dhid; hIdx++)
+                {
+                    float sum = b1.W[hIdx];
+                    for (int dIn = 0; dIn < D; dIn++)
+                        sum += ln2Out[dIn] * W1.W[dIn][hIdx];
+                    m1vec[hIdx] = sum;
+                    mask[hIdx] = sum > 0f ? 1f : 0f;
+                }
+
+                Array.Clear(tmp, 0, D);
+                for (int dOut = 0; dOut < D; dOut++)
+                {
+                    float sum = b2.W[dOut];
+                    for (int hIdx = 0; hIdx < Dhid; hIdx++)
+                    {
+                        float act = m1vec[hIdx] > 0f ? m1vec[hIdx] : 0f;
+                        sum += act * W2.W[hIdx][dOut];
+                    }
+                    tmp[dOut] = sum;
+                }
+
+                for (int d = 0; d < D; d++) h[d] += tmp[d];
+            }
+        }
 
         public sealed class ForwardCache
         {
@@ -735,6 +1025,11 @@ namespace TinyGptDemo.Model
 
             public float[,,] Logits;
             public float[,,] DLogits;
+
+            public float[,] StartLogits;
+            public float[,] EndLogits;
+            public float[,] DStartLogits;
+            public float[,] DEndLogits;
 
             public float[,,,] H;
             public float[,,,] DH;
@@ -778,6 +1073,11 @@ namespace TinyGptDemo.Model
 
                 Logits = new float[B, T, V];
                 DLogits = new float[B, T, V];
+
+                StartLogits = new float[B, T];
+                EndLogits = new float[B, T];
+                DStartLogits = new float[B, T];
+                DEndLogits = new float[B, T];
 
                 H = new float[L + 1, B, T, D];
                 DH = new float[L + 1, B, T, D];
@@ -902,12 +1202,15 @@ namespace TinyGptDemo.Model
                 MemoryMarshal.CreateSpan(ref Tmp[layer, b, t, 0], D);
         }
 
-        // -----------------------------------------------------------------------
-
         private sealed class HeadGrad
         {
             public float[][] Wout { get; }
             public float[] Bout { get; }
+
+            public float[] Wstart { get; }
+            public float[] Wend { get; }
+            public float Bstart { get; set; }
+            public float Bend { get; set; }
 
             public HeadGrad(int D, int V)
             {
@@ -915,6 +1218,11 @@ namespace TinyGptDemo.Model
                 for (int i = 0; i < D; i++)
                     Wout[i] = new float[V];
                 Bout = new float[V];
+
+                Wstart = new float[D];
+                Wend = new float[D];
+                Bstart = 0f;
+                Bend = 0f;
             }
         }
 
@@ -1019,8 +1327,6 @@ namespace TinyGptDemo.Model
                 }
             }
         }
-
-        // -----------------------------------------------------------------------
 
         private interface IParam
         {
