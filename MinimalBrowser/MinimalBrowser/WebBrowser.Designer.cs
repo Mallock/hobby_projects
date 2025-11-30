@@ -30,8 +30,59 @@
         {
             System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(WebBrowser));
             webView21 = new Microsoft.Web.WebView2.WinForms.WebView2();
+            topPanel = new Panel();
+            addressBar = new TextBox();
+            backButton = new Button();
+            forwardButton = new Button();
+            goButton = new Button();
+
             ((System.ComponentModel.ISupportInitialize)webView21).BeginInit();
             SuspendLayout();
+
+            // 
+            // topPanel
+            // 
+            topPanel.Dock = DockStyle.Top;
+            topPanel.Height = 36;
+            topPanel.Padding = new Padding(4);
+            topPanel.BackColor = Color.FromArgb(240, 242, 248);
+            topPanel.Controls.Add(backButton);
+            topPanel.Controls.Add(forwardButton);
+            topPanel.Controls.Add(addressBar);
+            topPanel.Controls.Add(goButton);
+
+            // 
+            // backButton
+            // 
+            backButton.Text = "<";
+            backButton.Width = 32;
+            backButton.Location = new Point(4, 4);
+            backButton.TabIndex = 0;
+
+            // 
+            // forwardButton
+            // 
+            forwardButton.Text = ">";
+            forwardButton.Width = 32;
+            forwardButton.Location = new Point(40, 4);
+            forwardButton.TabIndex = 1;
+
+            // 
+            // addressBar
+            // 
+            addressBar.Anchor = AnchorStyles.Left | AnchorStyles.Right;
+            addressBar.Location = new Point(80, 6);
+            addressBar.Size = new Size(600, 23);
+            addressBar.TabIndex = 2;
+
+            // 
+            // goButton
+            // 
+            goButton.Text = "Go";
+            goButton.Width = 40;
+            goButton.Location = new Point(690, 4);
+            goButton.TabIndex = 3;
+
             // 
             // webView21
             // 
@@ -39,12 +90,13 @@
             webView21.CreationProperties = null;
             webView21.DefaultBackgroundColor = Color.White;
             webView21.Dock = DockStyle.Fill;
-            webView21.Location = new Point(0, 0);
+            webView21.Location = new Point(0, 36);
             webView21.Name = "webView21";
-            webView21.Size = new Size(800, 450);
+            webView21.Size = new Size(800, 414);
             webView21.Source = new Uri("https://google.com", UriKind.Absolute);
-            webView21.TabIndex = 0;
+            webView21.TabIndex = 4;
             webView21.ZoomFactor = 1D;
+
             // 
             // WebBrowser
             // 
@@ -52,11 +104,11 @@
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(800, 450);
             Controls.Add(webView21);
+            Controls.Add(topPanel);
             Icon = (Icon)resources.GetObject("$this.Icon");
             MaximizeBox = false;
             MinimizeBox = false;
             Name = "WebBrowser";
-            Opacity = 0.9D;
             Text = "Browser";
             TopMost = true;
             Activated += WebBrowser_Activated;
@@ -68,5 +120,10 @@
         #endregion
 
         private Microsoft.Web.WebView2.WinForms.WebView2 webView21;
+        private System.Windows.Forms.Panel topPanel;
+        private System.Windows.Forms.TextBox addressBar;
+        private System.Windows.Forms.Button backButton;
+        private System.Windows.Forms.Button forwardButton;
+        private System.Windows.Forms.Button goButton;
     }
 }
