@@ -31,58 +31,13 @@
             System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(WebBrowser));
             webView21 = new Microsoft.Web.WebView2.WinForms.WebView2();
             topPanel = new Panel();
-            addressBar = new TextBox();
             backButton = new Button();
             forwardButton = new Button();
+            addressBar = new TextBox();
             goButton = new Button();
-
             ((System.ComponentModel.ISupportInitialize)webView21).BeginInit();
+            topPanel.SuspendLayout();
             SuspendLayout();
-
-            // 
-            // topPanel
-            // 
-            topPanel.Dock = DockStyle.Top;
-            topPanel.Height = 36;
-            topPanel.Padding = new Padding(4);
-            topPanel.BackColor = Color.FromArgb(240, 242, 248);
-            topPanel.Controls.Add(backButton);
-            topPanel.Controls.Add(forwardButton);
-            topPanel.Controls.Add(addressBar);
-            topPanel.Controls.Add(goButton);
-
-            // 
-            // backButton
-            // 
-            backButton.Text = "<";
-            backButton.Width = 32;
-            backButton.Location = new Point(4, 4);
-            backButton.TabIndex = 0;
-
-            // 
-            // forwardButton
-            // 
-            forwardButton.Text = ">";
-            forwardButton.Width = 32;
-            forwardButton.Location = new Point(40, 4);
-            forwardButton.TabIndex = 1;
-
-            // 
-            // addressBar
-            // 
-            addressBar.Anchor = AnchorStyles.Left | AnchorStyles.Right;
-            addressBar.Location = new Point(80, 6);
-            addressBar.Size = new Size(600, 23);
-            addressBar.TabIndex = 2;
-
-            // 
-            // goButton
-            // 
-            goButton.Text = "Go";
-            goButton.Width = 40;
-            goButton.Location = new Point(690, 4);
-            goButton.TabIndex = 3;
-
             // 
             // webView21
             // 
@@ -96,7 +51,52 @@
             webView21.Source = new Uri("https://google.com", UriKind.Absolute);
             webView21.TabIndex = 4;
             webView21.ZoomFactor = 1D;
-
+            // 
+            // topPanel
+            // 
+            topPanel.BackColor = Color.FromArgb(240, 242, 248);
+            topPanel.Controls.Add(backButton);
+            topPanel.Controls.Add(forwardButton);
+            topPanel.Controls.Add(addressBar);
+            topPanel.Controls.Add(goButton);
+            topPanel.Dock = DockStyle.Top;
+            topPanel.Location = new Point(0, 0);
+            topPanel.Name = "topPanel";
+            topPanel.Padding = new Padding(4);
+            topPanel.Size = new Size(800, 36);
+            topPanel.TabIndex = 5;
+            // 
+            // backButton
+            // 
+            backButton.Location = new Point(4, 4);
+            backButton.Name = "backButton";
+            backButton.Size = new Size(32, 23);
+            backButton.TabIndex = 0;
+            backButton.Text = "<";
+            // 
+            // forwardButton
+            // 
+            forwardButton.Location = new Point(40, 4);
+            forwardButton.Name = "forwardButton";
+            forwardButton.Size = new Size(32, 23);
+            forwardButton.TabIndex = 1;
+            forwardButton.Text = ">";
+            // 
+            // addressBar
+            // 
+            addressBar.Anchor = AnchorStyles.Left | AnchorStyles.Right;
+            addressBar.Location = new Point(80, 6);
+            addressBar.Name = "addressBar";
+            addressBar.Size = new Size(713, 23);
+            addressBar.TabIndex = 2;
+            // 
+            // goButton
+            // 
+            goButton.Location = new Point(690, 4);
+            goButton.Name = "goButton";
+            goButton.Size = new Size(40, 23);
+            goButton.TabIndex = 3;
+            goButton.Text = "Go";
             // 
             // WebBrowser
             // 
@@ -114,6 +114,8 @@
             Activated += WebBrowser_Activated;
             Deactivate += WebBrowser_Deactivate;
             ((System.ComponentModel.ISupportInitialize)webView21).EndInit();
+            topPanel.ResumeLayout(false);
+            topPanel.PerformLayout();
             ResumeLayout(false);
         }
 
