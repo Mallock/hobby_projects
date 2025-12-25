@@ -235,5 +235,17 @@ namespace MinimalBrowser
         {
             isUserTyping = false;
         }
+
+        private void chkTop_CheckedChanged(object sender, EventArgs e)
+        {
+            if (chkTop.Checked)
+            {
+                this.TopMost = true;
+            }
+            else
+            {
+                this.TopMost = false;
+            }
+        }
     }
 }

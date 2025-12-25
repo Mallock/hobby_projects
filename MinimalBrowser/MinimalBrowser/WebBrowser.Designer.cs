@@ -35,6 +35,7 @@
             forwardButton = new Button();
             addressBar = new TextBox();
             goButton = new Button();
+            chkTop = new CheckBox();
             ((System.ComponentModel.ISupportInitialize)webView21).BeginInit();
             topPanel.SuspendLayout();
             SuspendLayout();
@@ -55,6 +56,7 @@
             // topPanel
             // 
             topPanel.BackColor = Color.FromArgb(240, 242, 248);
+            topPanel.Controls.Add(chkTop);
             topPanel.Controls.Add(backButton);
             topPanel.Controls.Add(forwardButton);
             topPanel.Controls.Add(addressBar);
@@ -68,7 +70,7 @@
             // 
             // backButton
             // 
-            backButton.Location = new Point(4, 4);
+            backButton.Location = new Point(83, 6);
             backButton.Name = "backButton";
             backButton.Size = new Size(32, 23);
             backButton.TabIndex = 0;
@@ -76,7 +78,7 @@
             // 
             // forwardButton
             // 
-            forwardButton.Location = new Point(40, 4);
+            forwardButton.Location = new Point(119, 6);
             forwardButton.Name = "forwardButton";
             forwardButton.Size = new Size(32, 23);
             forwardButton.TabIndex = 1;
@@ -85,9 +87,9 @@
             // addressBar
             // 
             addressBar.Anchor = AnchorStyles.Left | AnchorStyles.Right;
-            addressBar.Location = new Point(80, 6);
+            addressBar.Location = new Point(157, 6);
             addressBar.Name = "addressBar";
-            addressBar.Size = new Size(713, 23);
+            addressBar.Size = new Size(636, 23);
             addressBar.TabIndex = 2;
             // 
             // goButton
@@ -97,6 +99,17 @@
             goButton.Size = new Size(40, 23);
             goButton.TabIndex = 3;
             goButton.Text = "Go";
+            // 
+            // chkTop
+            // 
+            chkTop.AutoSize = true;
+            chkTop.Location = new Point(7, 9);
+            chkTop.Name = "chkTop";
+            chkTop.Size = new Size(73, 19);
+            chkTop.TabIndex = 4;
+            chkTop.Text = "Topmost";
+            chkTop.UseVisualStyleBackColor = true;
+            chkTop.CheckedChanged += chkTop_CheckedChanged;
             // 
             // WebBrowser
             // 
@@ -110,7 +123,6 @@
             MinimizeBox = false;
             Name = "WebBrowser";
             Text = "Browser";
-            TopMost = true;
             Activated += WebBrowser_Activated;
             Deactivate += WebBrowser_Deactivate;
             ((System.ComponentModel.ISupportInitialize)webView21).EndInit();
@@ -127,5 +139,6 @@
         private System.Windows.Forms.Button backButton;
         private System.Windows.Forms.Button forwardButton;
         private System.Windows.Forms.Button goButton;
+        private CheckBox chkTop;
     }
 }
