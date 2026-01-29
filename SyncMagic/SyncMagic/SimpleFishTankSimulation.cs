@@ -621,6 +621,40 @@ namespace SyncMagic
                 }
             }
 
+            // Simple fish-fish collision avoidance (separation)
+            for (int i = 0; i < fishList.Count; i++)
+            {
+                var a = fishList[i];
+                var rectA = new RectangleF(a.X, a.Y, a.Image.Width, a.Image.Height);
+                for (int j = i + 1; j < fishList.Count; j++)
+                {
+                    var b = fishList[j];
+                    var rectB = new RectangleF(b.X, b.Y, b.Image.Width, b.Image.Height);
+                    if (rectA.IntersectsWith(rectB))
+                    {
+                        float ax = a.X + a.Image.Width * 0.5f;
+                        float ay = a.Y + a.Image.Height * 0.5f;
+                        float bx = b.X + b.Image.Width * 0.5f;
+                        float by = b.Y + b.Image.Height * 0.5f;
+                        float dx = ax - bx;
+                        float dy = ay - by;
+                        if (Math.Abs(dx) < 0.001f && Math.Abs(dy) < 0.001f)
+                        {
+                            dx = (float)(rand.NextDouble() - 0.5);
+                            dy = (float)(rand.NextDouble() - 0.5);
+                        }
+                        float len = (float)Math.Sqrt(dx * dx + dy * dy);
+                        dx /= len; dy /= len;
+                        float push = 0.6f;
+                        a.X = Math.Max(0, Math.Min(canvasWidth - a.Image.Width, a.X + dx * push));
+                        a.Y = Math.Max(bottomBarHeight + 10, Math.Min(canvasHeight - 10 - a.Image.Height, a.Y + dy * push));
+                        b.X = Math.Max(0, Math.Min(canvasWidth - b.Image.Width, b.X - dx * push));
+                        b.Y = Math.Max(bottomBarHeight + 10, Math.Min(canvasHeight - 10 - b.Image.Height, b.Y - dy * push));
+                        rectA = new RectangleF(a.X, a.Y, a.Image.Width, a.Image.Height);
+                    }
+                }
+            }
+
             hermitCrab.DirectionChangeTimer--;
 
             if (hermitCrab.DirectionChangeTimer <= 0)
@@ -939,13 +973,22 @@ namespace SyncMagic
             float x = rand.Next(0, Math.Max(1, canvasWidth - scaled.Width));
             var rect = new RectangleF(x, canvasHeight - scaled.Height - 1, scaled.Width, scaled.Height);
             int attempts = 0;
-            while (decors.Any(d => RectsIntersect(rect, new RectangleF(d.X, d.Y, d.Image.Width, d.Image.Height), 6)) && attempts++ < 10)
+            while (decors.Any(d => OverlapTooHigh(rect, new RectangleF(d.X, d.Y, d.Image.Width, d.Image.Height))) && attempts++ < 25)
             {
                 x = rand.Next(0, Math.Max(1, canvasWidth - scaled.Width));
                 rect = new RectangleF(x, canvasHeight - scaled.Height - 1, scaled.Width, scaled.Height);
             }
             float y = canvasHeight - scaled.Height - 1;
             decors.Add(new Decor { X = x, Y = y, Image = scaled });
+        }
+
+        private static bool OverlapTooHigh(RectangleF a, RectangleF b)
+        {
+            var inter = RectangleF.Intersect(a, b);
+            if (inter.Width <= 0 || inter.Height <= 0) return false;
+            float interArea = inter.Width * inter.Height;
+            float minArea = Math.Min(a.Width * a.Height, b.Width * b.Height);
+            return interArea > 0.08f * minArea; // >8% overlap considered too much
         }
     }
 }
