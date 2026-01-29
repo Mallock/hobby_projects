@@ -405,7 +405,7 @@ namespace SyncMagic
                 const int safetyMs = 200;       // Headroom to avoid device looping old GIF
                 double emaEncodeMs = 150;       // EMA of encode time
                 const int minFrames = 10;
-                const int maxFrames = 200;
+                const int maxFrames = 100;
                 const int baseCaptureIntervalMs = 250; // baseline pacing for capture
                 double emaUploadMs = 1200;      // Initial EMA upload estimate
                 const double emaAlpha = 0.30;   // EMA smoothing factor

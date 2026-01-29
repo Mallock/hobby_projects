@@ -1,9 +1,87 @@
 ﻿using System.Drawing.Imaging;
+using System.Net;
+using System.Net.Http;
+using System.Text;
+using System.Text.RegularExpressions;
 
 public class ImageUploader
 {
-    // Define `HttpClient` as a static, reusable instance with a shorter timeout  
-    private static readonly HttpClient client = new HttpClient { Timeout = TimeSpan.FromSeconds(120) };
+    // Simpler HttpClient to match device quirks
+    private static readonly HttpClient client = new HttpClient
+    {
+        Timeout = TimeSpan.FromSeconds(120)
+    };
+
+    static ImageUploader()
+    {
+        // Ensure legacy stacks also skip Expect: 100-Continue
+        ServicePointManager.Expect100Continue = false;
+    }
+
+    // Simple capability model
+    public class DeviceCapabilities
+    {
+        public string Model { get; set; } = string.Empty;
+        public string Version { get; set; } = string.Empty;
+        public bool SupportsJpg { get; set; } = true;
+        public bool SupportsGif { get; set; } = true;
+        public Size RequiredGifSizeImage { get; set; } = new Size(240, 240);
+        public Size RequiredGifSizeWeather { get; set; } = new Size(80, 80);
+        public string UploadEndpoint { get; set; } = "/doUpload?dir=/image";
+        public string WeatherGifDir { get; set; } = "/gif";
+        public string ImageDir { get; set; } = "/image";
+        public string RebootEndpoint { get; set; } = "/set?reboot=1";
+        public bool Wifi24GOnly { get; set; } = true;
+        public int? FreeSpaceGifKB { get; set; }
+        public int? FreeSpaceImageKB { get; set; }
+    }
+
+    public async Task<DeviceCapabilities> ProbeDeviceAsync(string ipAddress, CancellationToken ct = default)
+    {
+        var caps = new DeviceCapabilities();
+        if (string.IsNullOrWhiteSpace(ipAddress)) return caps;
+
+        string Base(string path) => $"http://{ipAddress}{path}";
+
+        try
+        {
+            var html = await client.GetStringAsync(Base("/"));
+            // Example: Model: HelloCubic-Lite,Version: V7.0.16
+            var m = Regex.Match(html, @"Model:\s*([^,<]+).*?Version:\s*([^\s<]+)", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+            if (m.Success)
+            {
+                caps.Model = m.Groups[1].Value.Trim();
+                caps.Version = m.Groups[2].Value.Trim();
+            }
+        }
+        catch { /* ignore */ }
+
+        try
+        {
+            var weather = await client.GetStringAsync(Base("/weather.html"));
+            // Example: Free Space:815KB, Current Path: /gif
+            var fm = Regex.Match(weather, @"Free\s*Space:(\d+)KB.*?/gif", RegexOptions.IgnoreCase);
+            if (fm.Success)
+            {
+                caps.FreeSpaceGifKB = int.TryParse(fm.Groups[1].Value, out var v) ? v : null;
+            }
+        }
+        catch { /* ignore */ }
+
+        try
+        {
+            var image = await client.GetStringAsync(Base("/image.html"));
+            // Example: Free Space:1087KB, Current path:/image
+            var fm = Regex.Match(image, @"Free\s*Space:(\d+)KB.*?/image", RegexOptions.IgnoreCase);
+            if (fm.Success)
+            {
+                caps.FreeSpaceImageKB = int.TryParse(fm.Groups[1].Value, out var v) ? v : null;
+            }
+        }
+        catch { /* ignore */ }
+
+        return caps;
+    }
 
     public async Task UploadImageAsync(PictureBox picBox, TextBox txtIPAddress, int retryCount = 0)
     {
@@ -28,8 +106,9 @@ public class ImageUploader
         string ipAddress = txtIPAddress.Text.Trim();
         string url = $"http://{ipAddress}/doUpload?dir=/image";
 
-        // Set required headers  
+        // Set required headers
         client.DefaultRequestHeaders.Clear();
+        client.DefaultRequestHeaders.ExpectContinue = false; // reduce handshake delay
         client.DefaultRequestHeaders.Add("X-Requested-With", "XMLHttpRequest");
         // Add other necessary headers  
 
@@ -91,6 +170,7 @@ public class ImageUploader
         string url = $"http://{ipAddress}/doUpload?dir=/image";
 
         client.DefaultRequestHeaders.Clear();
+        client.DefaultRequestHeaders.ExpectContinue = false;
         client.DefaultRequestHeaders.Add("X-Requested-With", "XMLHttpRequest");
 
         var boundary = "----WebKitFormBoundary" + DateTime.Now.Ticks.ToString("x");
@@ -169,7 +249,12 @@ public class ImageUploader
     {
         using (var memStream = new MemoryStream())
         {
-            var writer = new StreamWriter(memStream);
+            // Use ASCII/no BOM to avoid corrupting multipart boundaries
+            var writer = new StreamWriter(memStream, Encoding.ASCII, 1024, leaveOpen: true)
+            {
+                NewLine = "\r\n",
+                AutoFlush = true
+            };
 
             // Write boundary and form-data  
             writer.Write("--" + boundary + "\r\n");
@@ -177,15 +262,14 @@ public class ImageUploader
             writer.Write("/image\r\n");
             writer.Write("--" + boundary + "\r\n");
             writer.Write("Content-Disposition: form-data; name=\"file\"; filename=\"screen.gif\"\r\n");
-            writer.Write("Content-Type: image/jpeg\r\n\r\n");
-            writer.Flush();
+            // Use the actual content type (image/gif expected by the device)
+            writer.Write($"Content-Type: {contentType}\r\n\r\n");
 
             // Write file data  
             memStream.Write(fileData, 0, fileData.Length);
 
             // Write closing boundary  
             writer.Write("\r\n--" + boundary + "--\r\n");
-            writer.Flush();
 
             return memStream.ToArray();
         }
@@ -193,8 +277,10 @@ public class ImageUploader
     private byte[] GetMultipartFormData(string boundary, PictureBox picBox)
     {
         using (var memStream = new System.IO.MemoryStream())
-        using (var writer = new System.IO.StreamWriter(memStream))
+        using (var writer = new System.IO.StreamWriter(memStream, Encoding.ASCII, 1024, leaveOpen: true))
         {
+            writer.NewLine = "\r\n";
+            writer.AutoFlush = true;
             // Write boundary  
             writer.Write("--" + boundary + "\r\n");
             // Write dir field  
@@ -206,7 +292,7 @@ public class ImageUploader
             // Write file field headers  
             writer.Write("Content-Disposition: form-data; name=\"file\"; filename=\"screen.jpg\"\r\n");
             writer.Write("Content-Type: image/jpeg\r\n\r\n");
-            writer.Flush();
+            // writer flushes automatically via AutoFlush
 
             // Save the current position of the stream  
             long imageStartPosition = memStream.Position;
@@ -215,7 +301,6 @@ public class ImageUploader
             picBox.Image.Save(memStream, ImageFormat.Jpeg);
             writer.Write("\r\n");
             writer.Write("--" + boundary + "--\r\n");
-            writer.Flush();
 
             return memStream.ToArray();
         }
