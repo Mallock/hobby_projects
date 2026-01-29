@@ -166,26 +166,17 @@ namespace SyncMagic
         {
             InitializeSandWavePoints();
 
+            // Only gold fishes for maximum contrast and simplicity
             fishTypes = new List<FishType>
             {
-                new FishType(new Bitmap(SyncMagic.Properties.Resources._2427851_fish_fishing_food_sea_sea_creature_icon_right), FishSpeedCategory.Fast),
-                //new FishType(new Bitmap(SyncMagic.Properties.Resources._8935917_aquarium_fish_hippocampus_marine_seahorse_icon), FishSpeedCategory.Slow),
-                new FishType(new Bitmap(SyncMagic.Properties.Resources.parvi), FishSpeedCategory.Fast),
-                //new FishType(new Bitmap(SyncMagic.Properties.Resources._8935924_aquarium_blowfish_fish_puffer_pufferfish_icon), FishSpeedCategory.Slow),
                 new FishType(new Bitmap(SyncMagic.Properties.Resources.big_gold_fish), FishSpeedCategory.Fast),
-                //new FishType(new Bitmap(SyncMagic.Properties.Resources.medusa), FishSpeedCategory.Slow),
                 new FishType(new Bitmap(SyncMagic.Properties.Resources.gold_fish), FishSpeedCategory.Fast),
-                //new FishType(new Bitmap(SyncMagic.Properties.Resources.clown_fish), FishSpeedCategory.Medium),
-                new FishType(new Bitmap(SyncMagic.Properties.Resources.surgeon_fish), FishSpeedCategory.Fast),
-                //new FishType(new Bitmap(SyncMagic.Properties.Resources.angelfish), FishSpeedCategory.Medium),
-                //new FishType(new Bitmap(SyncMagic.Properties.Resources.sardine), FishSpeedCategory.Medium),
-                //new FishType(new Bitmap(SyncMagic.Properties.Resources.shrimp), FishSpeedCategory.Slow),
             };
 
             fishList = new List<Fish>();
             fishTypeCounts = new Dictionary<FishType, int>();
-            int totalFishDesired = 4;
-            int maxDuplicatesPerFishType = 2;
+            int totalFishDesired = 6; // two more gold fishes
+            int maxDuplicatesPerFishType = 6;
 
             int fishAdded = 0;
             while (fishAdded < totalFishDesired)
@@ -216,24 +207,19 @@ namespace SyncMagic
 
             foodList = new List<Food>();
 
+            // Curated, consistent bottom assets
             plantImages = new List<Bitmap>
             {
                 new Bitmap(SyncMagic.Properties.Resources._8936057_algae_bloom_cladophora_seaweed_underwater_icon),
                 new Bitmap(SyncMagic.Properties.Resources._8935921_algae_bloom_cladophora_seaweed_underwater_icon),
-                new Bitmap(SyncMagic.Properties.Resources._11823407_game_pearl_shells_blue_pearl_sea_icon),
-                new Bitmap(SyncMagic.Properties.Resources._8935921_algae_bloom_cladophora_seaweed_underwater_icon),
-                new Bitmap(SyncMagic.Properties.Resources._8935918_coral_diving_nature_ocean_reef_icon),
                 new Bitmap(SyncMagic.Properties.Resources._8935918_coral_diving_nature_ocean_reef_icon),
                 new Bitmap(SyncMagic.Properties.Resources.sea_grass_flip),
                 new Bitmap(SyncMagic.Properties.Resources.sea_grass),
                 new Bitmap(SyncMagic.Properties.Resources.sea_leaves),
                 new Bitmap(SyncMagic.Properties.Resources.sea_leaves_flip),
                 new Bitmap(SyncMagic.Properties.Resources.algae2),
-                new Bitmap(SyncMagic.Properties.Resources._11823408_game_castle_prince_princess_building_icon),
                 new Bitmap(SyncMagic.Properties.Resources.coral_scaled),
                 new Bitmap(SyncMagic.Properties.Resources.coral_scaled_flip),
-                new Bitmap(SyncMagic.Properties.Resources.StarFish),
-                new Bitmap(SyncMagic.Properties.Resources.fishleaves),
                 new Bitmap(SyncMagic.Properties.Resources.coral1),
                 new Bitmap(SyncMagic.Properties.Resources.coral2),
                 new Bitmap(SyncMagic.Properties.Resources.coral3),
@@ -241,7 +227,7 @@ namespace SyncMagic
 
             plants = new List<Plant>();
             Dictionary<Bitmap, int> plantImageCounts = new Dictionary<Bitmap, int>();
-            int numPlants = 5;
+            int numPlants = 6;
             int maxDuplicatesPerPlant = 2;
             float approximateSpacing = canvasWidth / numPlants;
             float waterHeightForPlants = canvasHeight;
@@ -263,13 +249,15 @@ namespace SyncMagic
                     float x = plantsAdded * approximateSpacing + rand.Next(-10, 10);
                     x = Math.Max(0, Math.Min(x, canvasWidth - plantImage.Width));
 
-                    float y = waterHeightForPlants - plantImage.Height - 5 + rand.Next(-5, 5);
+                    int targetH = rand.Next(26, 46);
+                    Bitmap scaledPlant = ScaleToHeight(plantImage, targetH);
+                    float y = waterHeightForPlants - scaledPlant.Height - 5 + rand.Next(-3, 3);
 
                     Plant plant = new Plant
                     {
                         X = x,
                         Y = y,
-                        Image = plantImage
+                        Image = scaledPlant
                     };
                     plants.Add(plant);
                     plantsAdded++;
@@ -313,6 +301,20 @@ namespace SyncMagic
             };
         }
 
+        private static Bitmap ScaleToHeight(Bitmap src, int height)
+        {
+            if (height <= 0) return new Bitmap(src);
+            int w = Math.Max(1, (int)Math.Round(src.Width * (height / (double)src.Height)));
+            var dst = new Bitmap(w, height, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+            using (var g = Graphics.FromImage(dst))
+            {
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+                g.DrawImage(src, new Rectangle(0, 0, w, height));
+            }
+            return dst;
+        }
+
         private void AddFish(FishType fishType)
         {
             float baseSpeedX = (float)(rand.NextDouble() * (fishType.MaxSpeedX - fishType.MinSpeedX) + fishType.MinSpeedX);
@@ -322,8 +324,8 @@ namespace SyncMagic
 
             Fish fish = new Fish
             {
-                X = rand.Next(20, canvasWidth - 20),
-                Y = rand.Next((bottomBarHeight + 20), canvasHeight - 60),
+                X = rand.Next(0, Math.Max(1, canvasWidth - fishType.Image.Width)),
+                Y = rand.Next((bottomBarHeight + 20), Math.Max(bottomBarHeight + 21, canvasHeight - 20 - fishType.Image.Height)),
                 SpeedX = baseSpeedX,
                 SpeedY = baseSpeedY,
                 MaxSpeedX = maxSpeedX,
@@ -360,7 +362,7 @@ namespace SyncMagic
                 Food food = new Food
                 {
                     X = rand.Next(10, canvasWidth - 10),
-                    Y = 0
+                    Y = bottomBarHeight
                 };
                 foodList.Add(food);
             }
@@ -531,13 +533,20 @@ namespace SyncMagic
                         fish.FacingRight = fish.SpeedX >= 0;
                     }
 
-                    if (fish.X > canvasWidth)
+                    // Bounce off left/right walls to keep fish inside the aquarium
+                    if (fish.X <= 0)
                     {
-                        fish.X = -fish.Image.Width;
+                        fish.X = 0;
+                        fish.SpeedX = Math.Abs(fish.SpeedX) * 0.5f;
+                        fish.DesiredSpeedX = Math.Abs(fish.DesiredSpeedX);
+                        fish.FacingRight = true;
                     }
-                    else if (fish.X + fish.Image.Width < 0)
+                    else if (fish.X + fish.Image.Width >= canvasWidth)
                     {
-                        fish.X = canvasWidth;
+                        fish.X = canvasWidth - fish.Image.Width;
+                        fish.SpeedX = -Math.Abs(fish.SpeedX) * 0.5f;
+                        fish.DesiredSpeedX = -Math.Abs(fish.DesiredSpeedX);
+                        fish.FacingRight = false;
                     }
 
                     if (fish.Y <= (bottomBarHeight + 20))

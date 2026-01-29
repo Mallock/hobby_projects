@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using AnimatedGif;
+using System.Text;
 
 namespace SyncMagic
 {
@@ -123,6 +124,54 @@ namespace SyncMagic
         {
             // Save settings when form is closing  
             SaveSettings();
+        }
+
+        private async void btnSeamlessMode_Click(object? sender, EventArgs e)
+        {
+            // Medical-grade UX: validate, guard, clear status, disable during op
+            lblOpsStatus.Text = string.Empty;
+            btnSeamlessMode.Enabled = false;
+            try
+            {
+                string ip = txtIPAddress.Text.Trim();
+                if (string.IsNullOrWhiteSpace(ip))
+                {
+                    MessageBox.Show("Please enter the device IP address.", "SyncMagic", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                // Toggle stop if running
+                if (gifCancellationTokenSource != null)
+                {
+                    StopGifRecording();
+                    // Stop all simulations to ensure a clean state
+                    DeactivateAllSimulationsExcept("");
+                    btnSeamlessMode.Text = "Start Seamless Tank";
+                    lblOpsStatus.Text = "Stopped.";
+                    return;
+                }
+
+                // Probe device first
+                var caps = await imageUploader.ProbeDeviceAsync(ip);
+                var sb = new StringBuilder();
+                sb.Append($"Model: {caps.Model}  Ver: {caps.Version}");
+                if (caps.FreeSpaceImageKB.HasValue) sb.Append($"  Free /image: {caps.FreeSpaceImageKB.Value}KB");
+                if (caps.FreeSpaceGifKB.HasValue) sb.Append($"  Free /gif: {caps.FreeSpaceGifKB.Value}KB");
+                lblOpsStatus.Text = sb.ToString();
+
+                // Start the Fish Tank with seamless adaptive recorder
+                if (fishTankSimulation == null) fishTankSimulation = new FishTankSimulation();
+                DeactivateAllSimulationsExcept("fishTank");
+                btnSeamlessMode.Text = "Stop Seamless Tank";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to start seamless mode: {ex.Message}", "SyncMagic", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                btnSeamlessMode.Enabled = true;
+            }
         }
 
         private void btnUpdate_Click(object sender, EventArgs e)

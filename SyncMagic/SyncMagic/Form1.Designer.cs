@@ -49,6 +49,8 @@
             btnGoldFish = new Button();
             btnFishTank = new Button();
             button1 = new Button();
+            btnSeamlessMode = new Button();
+            lblOpsStatus = new Label();
             groupBox1.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)picScreen).BeginInit();
             SuspendLayout();
@@ -235,11 +237,32 @@
             button1.UseVisualStyleBackColor = true;
            
             // 
+            // btnSeamlessMode
+            // 
+            btnSeamlessMode.Location = new Point(114, 391);
+            btnSeamlessMode.Name = "btnSeamlessMode";
+            btnSeamlessMode.Size = new Size(130, 23);
+            btnSeamlessMode.TabIndex = 15;
+            btnSeamlessMode.Text = "Start Seamless Tank";
+            btnSeamlessMode.UseVisualStyleBackColor = true;
+            btnSeamlessMode.Click += btnSeamlessMode_Click;
+            // 
+            // lblOpsStatus
+            // 
+            lblOpsStatus.AutoSize = true;
+            lblOpsStatus.Location = new Point(380, 26);
+            lblOpsStatus.Name = "lblOpsStatus";
+            lblOpsStatus.Size = new Size(0, 15);
+            lblOpsStatus.TabIndex = 16;
+            lblOpsStatus.Text = "";
+            // 
             // Form1
             // 
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(800, 450);
+            Controls.Add(lblOpsStatus);
+            Controls.Add(btnSeamlessMode);
             Controls.Add(button1);
             Controls.Add(btnFishTank);
             Controls.Add(btnGoldFish);
@@ -288,5 +311,7 @@
         private Button btnGoldFish;
         private Button btnFishTank;
         private Button button1;
+        private Button btnSeamlessMode;
+        private Label lblOpsStatus;
     }
 }
