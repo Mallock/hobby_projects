@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Diagnostics;
 using System.Diagnostics;
 using System.Drawing;
@@ -51,6 +52,10 @@ namespace SyncMagic
 
         // MemoryStream to hold GIF image for PictureBox  
         private MemoryStream pictureBoxMemoryStream;
+        // File to persist last used IP address
+        private readonly string ipFilePath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "SyncMagic", "last_ip.txt");
 
         public Form1()
         {
@@ -77,6 +82,13 @@ namespace SyncMagic
             // Start the existing timer  
             tmrScreenUpdate.Start();
 
+            // Load last saved IP (if any) and save on change/close
+            LoadLastIp();
+            txtIPAddress.Leave += (s, e) => { if (chkAutoSaveIP.Checked) SaveLastIp(); };
+            btnSaveIP.Click += (s, e) => SaveLastIp();
+            // Ensure we persist settings on close
+            this.FormClosing += Form1_FormClosing;
+
 
         }
 
@@ -88,8 +100,13 @@ namespace SyncMagic
 
         private void LoadSettings()
         {
-            // Load the IPAddress setting into txtIPAddress  
-            txtIPAddress.Text = Properties.Settings.Default.IPAddress;
+            // Only override the textbox if a non-empty setting exists.
+            // This prevents wiping out the value we loaded from disk in LoadLastIp().
+            var ip = Properties.Settings.Default.IPAddress;
+            if (!string.IsNullOrWhiteSpace(ip))
+            {
+                txtIPAddress.Text = ip;
+            }
         }
 
         private void SaveSettings()
@@ -98,6 +115,8 @@ namespace SyncMagic
             Properties.Settings.Default.IPAddress = txtIPAddress.Text;
             Properties.Settings.Default.Save();
             tmrScreenUpdate.Stop();
+            // Also persist to disk for quick reuse
+            SaveLastIp();
         }
 
         private void Form1_FormClosing(object sender, FormClosingEventArgs e)
@@ -544,6 +563,43 @@ namespace SyncMagic
                 gifCancellationTokenSource.Dispose();
                 gifCancellationTokenSource = null;
             }
+        }
+
+        private void LoadLastIp()
+        {
+            try
+            {
+                var dir = Path.GetDirectoryName(ipFilePath);
+                if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                if (File.Exists(ipFilePath))
+                {
+                    var txt = File.ReadAllText(ipFilePath).Trim();
+                    if (!string.IsNullOrEmpty(txt)) txtIPAddress.Text = txt;
+                }
+            }
+            catch
+            {
+                // ignore load errors
+            }
+        }
+
+        private void SaveLastIp()
+        {
+            try
+            {
+                var dir = Path.GetDirectoryName(ipFilePath);
+                if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                File.WriteAllText(ipFilePath, txtIPAddress.Text.Trim());
+            }
+            catch
+            {
+                // ignore save errors
+            }
+        }
+
+        private void btnSaveIP_Click(object? sender, EventArgs e)
+        {
+            SaveLastIp();
         }
 
         private Bitmap ResizeToFixedSize(Bitmap source, int width, int height)

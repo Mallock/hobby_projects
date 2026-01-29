@@ -32,6 +32,8 @@
             System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(Form1));
             label1 = new Label();
             txtIPAddress = new TextBox();
+            chkAutoSaveIP = new CheckBox();
+            btnSaveIP = new Button();
             groupBox1 = new GroupBox();
             picScreen = new PictureBox();
             btnUpdate = new Button();
@@ -67,6 +69,26 @@
             txtIPAddress.Size = new Size(100, 23);
             txtIPAddress.TabIndex = 1;
             txtIPAddress.Text = "123.123.123.123";
+            // 
+            // chkAutoSaveIP
+            // 
+            chkAutoSaveIP.Location = new Point(190, 24);
+            chkAutoSaveIP.Name = "chkAutoSaveIP";
+            chkAutoSaveIP.Size = new Size(100, 20);
+            chkAutoSaveIP.TabIndex = 2;
+            chkAutoSaveIP.Text = "Auto-save IP";
+            chkAutoSaveIP.Checked = true;
+            chkAutoSaveIP.UseVisualStyleBackColor = true;
+            // 
+            // btnSaveIP
+            // 
+            btnSaveIP.Location = new Point(300, 22);
+            btnSaveIP.Name = "btnSaveIP";
+            btnSaveIP.Size = new Size(60, 23);
+            btnSaveIP.TabIndex = 3;
+            btnSaveIP.Text = "Save IP";
+            btnSaveIP.UseVisualStyleBackColor = true;
+            btnSaveIP.Click += btnSaveIP_Click;
             // 
             // groupBox1
             // 
@@ -232,6 +254,8 @@
             Controls.Add(btnUpdate);
             Controls.Add(groupBox1);
             Controls.Add(txtIPAddress);
+            Controls.Add(chkAutoSaveIP);
+            Controls.Add(btnSaveIP);
             Controls.Add(label1);
             Icon = (Icon)resources.GetObject("$this.Icon");
             Name = "Form1";
@@ -247,6 +271,8 @@
 
         private Label label1;
         private TextBox txtIPAddress;
+        private CheckBox chkAutoSaveIP;
+        private Button btnSaveIP;
         private GroupBox groupBox1;
         private PictureBox picScreen;
         private Button btnUpdate;
