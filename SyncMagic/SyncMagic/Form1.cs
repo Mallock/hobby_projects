@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -598,12 +599,12 @@ namespace SyncMagic
 
                     // Measure encode time
                     var encodeSw = Stopwatch.StartNew();
-                    // Assemble frames into GIF with reduced quality
+                    // Assemble frames into GIF with full 256-color palette for richer colors
                     using (var gif = AnimatedGif.AnimatedGif.Create("screen.gif", gifFrameDelayMs))
                     {
                         foreach (var image in gifFrames)
                         {
-                            gif.AddFrame(image, quality: GifQuality.Bit4);
+                            gif.AddFrame(image, quality: GifQuality.Bit8);
                         }
                     }
                     encodeSw.Stop();
@@ -710,12 +711,13 @@ namespace SyncMagic
 
         private Bitmap ResizeToFixedSize(Bitmap source, int width, int height)
         {
-            var resizedBitmap = new Bitmap(width, height);
+            // Render to 24bpp to help GIF quantization and keep colors vivid
+            var resizedBitmap = new Bitmap(width, height, PixelFormat.Format24bppRgb);
             using (var graphics = Graphics.FromImage(resizedBitmap))
             {
-                graphics.CompositingQuality = CompositingQuality.HighSpeed;
-                graphics.InterpolationMode = InterpolationMode.Low;
-                graphics.PixelOffsetMode = PixelOffsetMode.HighSpeed;
+                graphics.CompositingQuality = CompositingQuality.HighQuality;
+                graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
                 graphics.DrawImage(source, 0, 0, width, height);
             }
             return resizedBitmap;
