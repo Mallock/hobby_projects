@@ -668,6 +668,29 @@ public class DigitalClockWeather
         }
     }
 
+    // Wrapper to optionally mirror the status bar horizontally without affecting the rest of the scene
+    public void DrawStatusBar(Graphics g, Rectangle area, bool mirrorHorizontally)
+    {
+        if (!mirrorHorizontally)
+        {
+            DrawBottomStatusBar(g, area);
+            return;
+        }
+
+        using (var barBmp = new Bitmap(area.Width, area.Height))
+        using (var bg = Graphics.FromImage(barBmp))
+        {
+            // Render the normal bar into an offscreen bitmap at 0,0
+            DrawBottomStatusBar(bg, new Rectangle(0, 0, area.Width, area.Height));
+
+            // Mirror horizontally
+            barBmp.RotateFlip(RotateFlipType.RotateNoneFlipX);
+
+            // Draw onto the target graphics at the requested location
+            g.DrawImageUnscaled(barBmp, area.X, area.Y);
+        }
+    }
+
     private float FindOptimalFontSize(Graphics g, string text, float maxWidth, float maxHeight, float maxFontSize)
     {
         float minFontSize = 5f;

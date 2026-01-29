@@ -831,10 +831,10 @@ namespace SyncMagic
                     }
                 }
 
-                // Draw a top status bar with time (left) and temperature (right)
-                int barHeight = bottomBarHeight;
-                Rectangle topBar = new Rectangle(0, 0, canvasWidth, barHeight);
-                clockWeather.DrawBottomStatusBar(g, topBar);
+                    // Draw a top status bar with time (left) and temperature (right), optionally mirrored
+                    int barHeight = bottomBarHeight;
+                    Rectangle topBar = new Rectangle(0, 0, canvasWidth, barHeight);
+                    clockWeather.DrawStatusBar(g, topBar, RenderOptions.MirrorStatusBar);
             }
 
             return bmp;

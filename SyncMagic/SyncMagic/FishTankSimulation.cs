@@ -839,10 +839,10 @@ public class FishTankSimulation
                 }
             }
 
-            // Draw a bottom status bar with time (left) and temperature (right)
+            // Draw a top status bar with time (left) and temperature (right), optionally mirrored
             int barHeight = bottomBarHeight; // unified bar height
             Rectangle topBar = new Rectangle(0, 0, canvasWidth, barHeight);
-            clockWeather.DrawBottomStatusBar(g, topBar);
+            clockWeather.DrawStatusBar(g, topBar, RenderOptions.MirrorStatusBar);
         }
 
         return bmp;

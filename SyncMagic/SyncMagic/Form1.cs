@@ -58,6 +58,10 @@ namespace SyncMagic
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "SyncMagic", "last_ip.txt");
 
+        // UI controls for rotation and status bar mirroring
+        private Button btnRotate;
+        private CheckBox chkMirrorStatusBar;
+
         public Form1()
         {
             InitializeComponent();
@@ -89,6 +93,56 @@ namespace SyncMagic
             btnSaveIP.Click += (s, e) => SaveLastIp();
             // Ensure we persist settings on close
             this.FormClosing += Form1_FormClosing;
+
+            // --- UI: Rotation button and Mirror status bar checkbox (programmatic addition) ---
+            btnRotate = new Button
+            {
+                Name = "btnRotate",
+                Text = "Rotation: 0°",
+                AutoSize = true,
+            };
+            // Try to place near the seamless mode button, fallback to top-right
+            try
+            {
+                btnRotate.Location = new Point(btnSeamlessMode.Right + 10, btnSeamlessMode.Top);
+            }
+            catch
+            {
+                btnRotate.Location = new Point(10, 10);
+            }
+            btnRotate.Click += (s, e) =>
+            {
+                // Cycle 0 -> 90 -> 180 -> 270 -> 0
+                switch (RenderOptions.RotationDegrees)
+                {
+                    case 0: RenderOptions.RotationDegrees = 90; break;
+                    case 90: RenderOptions.RotationDegrees = 180; break;
+                    case 180: RenderOptions.RotationDegrees = 270; break;
+                    default: RenderOptions.RotationDegrees = 0; break;
+                }
+                btnRotate.Text = $"Rotation: {RenderOptions.RotationDegrees}°";
+            };
+            Controls.Add(btnRotate);
+
+            chkMirrorStatusBar = new CheckBox
+            {
+                Name = "chkMirrorStatusBar",
+                Text = "Mirror clock/temp",
+                AutoSize = true,
+            };
+            try
+            {
+                chkMirrorStatusBar.Location = new Point(btnRotate.Left, btnRotate.Bottom + 6);
+            }
+            catch
+            {
+                chkMirrorStatusBar.Location = new Point(10, btnRotate.Bottom + 6);
+            }
+            chkMirrorStatusBar.CheckedChanged += (s, e) =>
+            {
+                RenderOptions.MirrorStatusBar = chkMirrorStatusBar.Checked;
+            };
+            Controls.Add(chkMirrorStatusBar);
 
 
         }
@@ -495,7 +549,10 @@ namespace SyncMagic
                         // Resize the frame to 240x240  
                         Bitmap resizedFrame = ResizeToFixedSize(frame, 240, 240);
 
-                        // Add the resized frame to the list  
+                        // Apply rotation if requested
+                        ApplyRotationInPlace(resizedFrame);
+
+                        // Add the resized/rotated frame to the list  
                         gifFrames.Add(resizedFrame);
 
                         // Dispose of the original frame  
@@ -687,6 +744,26 @@ namespace SyncMagic
 
             // Force the PictureBox to repaint  
             picScreen.Invalidate();
+        }
+
+        private void ApplyRotationInPlace(Bitmap bmp)
+        {
+            int deg = RenderOptions.RotationDegrees % 360;
+            if (deg < 0) deg += 360;
+            switch (deg)
+            {
+                case 90:
+                    bmp.RotateFlip(RotateFlipType.Rotate90FlipNone);
+                    break;
+                case 180:
+                    bmp.RotateFlip(RotateFlipType.Rotate180FlipNone);
+                    break;
+                case 270:
+                    bmp.RotateFlip(RotateFlipType.Rotate270FlipNone);
+                    break;
+                default:
+                    break;
+            }
         }
 
         private void OnFrameChanged(object sender, EventArgs e)
