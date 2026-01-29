@@ -377,55 +377,8 @@ namespace SyncMagic
         {
             sandOffset += 0.1f;
             if (sandOffset > 10f) sandOffset = 0f;
-
-            if (rand.NextDouble() < 0.005)
-            {
-                Food food = new Food
-                {
-                    X = rand.Next(10, canvasWidth - 10),
-                    Y = bottomBarHeight
-                };
-                foodList.Add(food);
-            }
-
-            const float foodAttractionThreshold = 100f;
-
-            for (int i = foodList.Count - 1; i >= 0; i--)
-            {
-                Food food = foodList[i];
-                food.Y += 0.5f;
-
-                if (food.Y > canvasHeight - 20)
-                {
-                    foodList.RemoveAt(i);
-                }
-                else
-                {
-                    foreach (var fish in fishList)
-                    {
-                        if (!fish.IsDead && Math.Abs(fish.X - food.X) < 10 && Math.Abs(fish.Y - food.Y) < 10)
-                        {
-                            fish.IsEating = true;
-                            fish.EatingTimer = 60;
-                            foodList.RemoveAt(i);
-                            break;
-                        }
-                    }
-
-                    if (!food.IsBeingTargeted && food.Y > foodAttractionThreshold)
-                    {
-                        var availableFish = fishList.FindAll(f => !f.IsDead && !f.IsGoingToFood);
-                        if (availableFish.Count > 0)
-                        {
-                            var fish = availableFish[rand.Next(availableFish.Count)];
-                            fish.IsGoingToFood = true;
-                            fish.TargetFoodX = food.X;
-                            fish.TargetFoodY = food.Y;
-                            food.IsBeingTargeted = true;
-                        }
-                    }
-                }
-            }
+            // Disable food mechanics to avoid revealing non-animating periods
+            foodList.Clear();
 
             for (int i = fishList.Count - 1; i >= 0; i--)
             {
@@ -690,27 +643,8 @@ namespace SyncMagic
                 hermitCrab.FacingRight = false;
             }
 
-            //if (rand.NextDouble() < 0.015)
-            //{
-            //    Bubble bubble = new Bubble
-            //    {
-            //        X = rand.Next(0, canvasWidth),
-            //        Y = canvasHeight,
-            //        Image = bubbleImages[rand.Next(bubbleImages.Count)]
-            //    };
-            //    bubbles.Add(bubble);
-            //}
-            //for (int i = bubbles.Count - 1; i >= 0; i--)
-            //{
-            //    Bubble bubble = bubbles[i];
-            //    bubble.Y -= 1f;
-            //    bubble.X += (float)(rand.NextDouble() * 1 - 0.5f);
-
-            //    if (bubble.Y + bubble.Image.Height < 0)
-            //    {
-            //        bubbles.RemoveAt(i);
-            //    }
-            //}
+            // Disable bubbles entirely
+            bubbles.Clear();
         }
 
         private void AddNewFishConsideringDuplicateLimits()
@@ -791,16 +725,7 @@ namespace SyncMagic
                     }
                 }
 
-                foreach (var bubble in bubbles)
-                {
-                    g.DrawImage(bubble.Image, bubble.X, bubble.Y);
-                }
-
-                Brush foodBrush = new SolidBrush(Color.Pink);
-                foreach (var food in foodList)
-                {
-                    g.FillEllipse(foodBrush, food.X - 2, food.Y - 2, 4, 4);
-                }
+                // Bubbles and food visuals removed for seamless appearance during uploads
 
                 foreach (var fish in fishList)
                 {

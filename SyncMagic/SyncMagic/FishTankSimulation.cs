@@ -393,55 +393,8 @@ public class FishTankSimulation
     {
         sandOffset += 0.1f;
         if (sandOffset > 10f) sandOffset = 0f;
-
-        if (rand.NextDouble() < 0.01)
-        {
-            Food food = new Food
-            {
-                X = rand.Next(10, canvasWidth - 10),
-                Y = bottomBarHeight // drop food from just below the top bar
-            };
-            foodList.Add(food);
-        }
-
-        const float foodAttractionThreshold = 100f;
-
-        for (int i = foodList.Count - 1; i >= 0; i--)
-        {
-            Food food = foodList[i];
-            food.Y += 1f;
-
-            if (food.Y > canvasHeight - 20)
-            {
-                foodList.RemoveAt(i);
-            }
-            else
-            {
-                foreach (var fish in fishList)
-                {
-                    if (!fish.IsDead && Math.Abs(fish.X - food.X) < 10 && Math.Abs(fish.Y - food.Y) < 10)
-                    {
-                        fish.IsEating = true;
-                        fish.EatingTimer = 30;
-                        foodList.RemoveAt(i);
-                        break;
-                    }
-                }
-
-                if (!food.IsBeingTargeted && food.Y > foodAttractionThreshold)
-                {
-                    var availableFish = fishList.FindAll(f => !f.IsDead && !f.IsGoingToFood);
-                    if (availableFish.Count > 0)
-                    {
-                        var fish = availableFish[rand.Next(availableFish.Count)];
-                        fish.IsGoingToFood = true;
-                        fish.TargetFoodX = food.X;
-                        fish.TargetFoodY = food.Y;
-                        food.IsBeingTargeted = true;
-                    }
-                }
-            }
-        }
+        // Disable food mechanics to avoid visual artifacts revealing upload pauses
+        foodList.Clear();
 
         for (int i = fishList.Count - 1; i >= 0; i--)
         {
@@ -708,27 +661,8 @@ public class FishTankSimulation
             hermitCrab.FacingRight = false;
         }
 
-        if (rand.NextDouble() < 0.03)
-        {
-            Bubble bubble = new Bubble
-            {
-                X = rand.Next(0, canvasWidth),
-                Y = canvasHeight,
-                Image = bubbleImages[rand.Next(bubbleImages.Count)]
-            };
-            bubbles.Add(bubble);
-        }
-        for (int i = bubbles.Count - 1; i >= 0; i--)
-        {
-            Bubble bubble = bubbles[i];
-            bubble.Y -= 2f;
-            bubble.X += (float)(rand.NextDouble() * 2 - 1);
-
-            if (bubble.Y + bubble.Image.Height < 0)
-            {
-                bubbles.RemoveAt(i);
-            }
-        }
+        // Disable bubbles for same reason (keep list empty)
+        bubbles.Clear();
     }
 
     private void AddNewFishConsideringDuplicateLimits()
@@ -810,16 +744,7 @@ public class FishTankSimulation
                 }
             }
 
-            foreach (var bubble in bubbles)
-            {
-                g.DrawImage(bubble.Image, bubble.X, bubble.Y);
-            }
-
-            Brush foodBrush = new SolidBrush(Color.Pink);
-            foreach (var food in foodList)
-            {
-                g.FillEllipse(foodBrush, food.X - 2, food.Y - 2, 4, 4);
-            }
+            // Bubbles and food are disabled to keep the scene visually consistent during uploads
 
             foreach (var fish in fishList)
             {
