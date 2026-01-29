@@ -193,12 +193,17 @@ namespace SyncMagic
             fishList = new List<Fish>();
             fishTypeCounts = new Dictionary<FishType, int>();
 
+            // Target: 3 fish total for 240px
+            int targetTotalFish = 3;
             int spawned = 0;
-            spawned += SpawnSpecies("gold", 3);
-            spawned += SpawnSpecies("parvi", 1);
-            spawned += SpawnSpecies("surgeon", 1);
-            spawned += SpawnSpecies("2427851", 1);
-            while (spawned < 6)
+            spawned += SpawnSpecies("gold", Math.Min(2, targetTotalFish - spawned));
+            string[] priority = new[] { "surgeon", "parvi", "2427851", "gold" };
+            foreach (var key in priority)
+            {
+                if (spawned >= targetTotalFish) break;
+                spawned += SpawnSpecies(key, 1);
+            }
+            while (spawned < targetTotalFish)
             {
                 if (fishTypes.Count == 0) break;
                 AddFish(fishTypes[rand.Next(Math.Min(2, fishTypes.Count))]);

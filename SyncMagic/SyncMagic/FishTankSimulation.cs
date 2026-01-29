@@ -197,17 +197,23 @@ public class FishTankSimulation
         fishList = new List<Fish>();
         fishTypeCounts = new Dictionary<FishType, int>();
 
-        // Spawn plan: 3 gold, 1 parvi, 1 surgeon, 1 icon (fallbacks to gold if missing)
+        // Target smaller school for 240px: 3 fish total
+        int targetTotalFish = 3;
         int spawned = 0;
-        spawned += SpawnSpecies("gold", 3);
-        spawned += SpawnSpecies("parvi", 1);
-        spawned += SpawnSpecies("surgeon", 1);
-        spawned += SpawnSpecies("2427851", 1);
-        // If we couldn't reach 6 due to missing assets, fill with any gold variants
-        while (spawned < 6)
+        // Prefer two gold for contrast
+        spawned += SpawnSpecies("gold", Math.Min(2, targetTotalFish - spawned));
+        // Then try to add one special (surgeon > parvi > icon > gold)
+        string[] priority = new[] { "surgeon", "parvi", "2427851", "gold" };
+        foreach (var key in priority)
+        {
+            if (spawned >= targetTotalFish) break;
+            spawned += SpawnSpecies(key, 1);
+        }
+        // Fill with gold if still short
+        while (spawned < targetTotalFish)
         {
             if (fishTypes.Count == 0) break;
-            AddFish(fishTypes[rand.Next(Math.Min(2, fishTypes.Count))]); // prefer gold entries
+            AddFish(fishTypes[rand.Next(Math.Min(2, fishTypes.Count))]);
             spawned++;
         }
 
