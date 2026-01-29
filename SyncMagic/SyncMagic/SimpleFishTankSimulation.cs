@@ -770,7 +770,8 @@ namespace SyncMagic
             Bitmap bmp = new Bitmap(canvasWidth, canvasHeight);
             using (Graphics g = Graphics.FromImage(bmp))
             {
-                g.Clear(Color.Transparent);
+                // Use opaque background to avoid GIF transparency artifacts on device
+                g.Clear(Color.Black);
 
                 Brush sandBrush = new SolidBrush(Color.SandyBrown);
                 g.FillPolygon(sandBrush, sandPoints);
@@ -825,13 +826,15 @@ namespace SyncMagic
                     {
                         using (ImageAttributes imageAttributes = new ImageAttributes())
                         {
+                            // Brighten without changing alpha so fish stays visible in GIF
+                            float boost = 1.2f;
                             float[][] colorMatrixElements = {
-                            new float[] {1,  0,  0,  0, 0},
-                            new float[] {0,  1,  0,  0, 0},
-                            new float[] {0,  0,  1,  0, 0},
-                            new float[] {0,  0,  0,  0.5f, 0},
-                            new float[] {0,  0,  0,  0, 1}
-                        };
+                                new float[] {boost, 0,     0,     0, 0},
+                                new float[] {0,     boost, 0,     0, 0},
+                                new float[] {0,     0,     boost, 0, 0},
+                                new float[] {0,     0,     0,     1, 0},
+                                new float[] {0,     0,     0,     0, 1}
+                            };
                             ColorMatrix colorMatrix = new ColorMatrix(colorMatrixElements);
                             imageAttributes.SetColorMatrix(colorMatrix, ColorMatrixFlag.Default, ColorAdjustType.Bitmap);
 
