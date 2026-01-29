@@ -1,7 +1,10 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Globalization;
+using System.Linq;
 
 public class FishTankSimulation
 {
@@ -105,6 +108,15 @@ public class FishTankSimulation
     private List<Plant> plants;
     private List<Bitmap> plantImages;
 
+    private class Decor
+    {
+        public float X;
+        public float Y;
+        public Bitmap Image;
+    }
+
+    private readonly List<Decor> decors = new List<Decor>();
+
     private class Bubble
     {
         public float X;
@@ -168,48 +180,40 @@ public class FishTankSimulation
     {
         InitializeSandWavePoints();
 
-        // Only gold fish variants for high contrast and clarity
-        fishTypes = new List<FishType>
-        {
-            new FishType(new Bitmap(SyncMagic.Properties.Resources.big_gold_fish), FishSpeedCategory.Medium),
-            new FishType(new Bitmap(SyncMagic.Properties.Resources.gold_fish), FishSpeedCategory.Fast),
-        };
+        // Build curated species: gold, parvi (if available), surgeon (if available), and icon 2427851 if present
+        fishTypes = new List<FishType>();
+        var goldA = SafeCloneBitmap(() => SyncMagic.Properties.Resources.big_gold_fish);
+        var goldB = SafeCloneBitmap(() => SyncMagic.Properties.Resources.gold_fish);
+        Bitmap? parviBmp = FindResourceBitmap("parvi");
+        Bitmap? surgeonBmp = FindResourceBitmap("surgeon");
+        Bitmap? iconBmp = FindResourceBitmap("2427851");
+
+        if (goldA != null) fishTypes.Add(new FishType(goldA, FishSpeedCategory.Medium));
+        if (goldB != null) fishTypes.Add(new FishType(goldB, FishSpeedCategory.Fast));
+        if (parviBmp != null) fishTypes.Add(new FishType(parviBmp, FishSpeedCategory.Medium));
+        if (surgeonBmp != null) fishTypes.Add(new FishType(surgeonBmp, FishSpeedCategory.Fast));
+        if (iconBmp != null) fishTypes.Add(new FishType(iconBmp, FishSpeedCategory.Slow));
 
         fishList = new List<Fish>();
         fishTypeCounts = new Dictionary<FishType, int>();
-        int totalFishDesired = 6; // two more gold fishes
-        int maxDuplicatesPerFishType = 6; // allow duplicates since only gold variants
 
-        int fishAdded = 0;
-        while (fishAdded < totalFishDesired)
+        // Spawn plan: 3 gold, 1 parvi, 1 surgeon, 1 icon (fallbacks to gold if missing)
+        int spawned = 0;
+        spawned += SpawnSpecies("gold", 3);
+        spawned += SpawnSpecies("parvi", 1);
+        spawned += SpawnSpecies("surgeon", 1);
+        spawned += SpawnSpecies("2427851", 1);
+        // If we couldn't reach 6 due to missing assets, fill with any gold variants
+        while (spawned < 6)
         {
-            FishType fishType = fishTypes[rand.Next(fishTypes.Count)];
-
-            if (!fishTypeCounts.ContainsKey(fishType))
-            {
-                fishTypeCounts[fishType] = 0;
-            }
-
-            if (fishTypeCounts[fishType] < maxDuplicatesPerFishType)
-            {
-                AddFish(fishType);
-                fishTypeCounts[fishType]++;
-                fishAdded++;
-            }
-            else
-            {
-                int availableFishTypes = fishTypes.Count(ft =>
-                    !fishTypeCounts.ContainsKey(ft) || fishTypeCounts[ft] < maxDuplicatesPerFishType);
-                if (availableFishTypes == 0)
-                {
-                    break;
-                }
-            }
+            if (fishTypes.Count == 0) break;
+            AddFish(fishTypes[rand.Next(Math.Min(2, fishTypes.Count))]); // prefer gold entries
+            spawned++;
         }
 
         foodList = new List<Food>();
 
-        // Curated, stylistically consistent bottom assets (remove castle, pearl shell, mismatched)
+        // Curated, stylistically consistent bottom assets, plus decor (castle, hermit crab/octopus)
         plantImages = new List<Bitmap>
     {
         new Bitmap(SyncMagic.Properties.Resources._8936057_algae_bloom_cladophora_seaweed_underwater_icon),
@@ -290,7 +294,13 @@ public class FishTankSimulation
 
         bubbles = new List<Bubble>();
 
-        Bitmap hermitCrabImage = new Bitmap(SyncMagic.Properties.Resources.octopus);
+        // Static decor at bottom: castle and optionally hermit crab / octopus sprite
+        TryAddDecorAtBottom("castle", preferredHeight: Math.Min(70, Math.Max(46, canvasHeight / 4)));
+        TryAddDecorAtBottom("hermit", preferredHeight: 36);
+        TryAddDecorAtBottom("crab", preferredHeight: 36);
+        TryAddDecorAtBottom("octopus", preferredHeight: 40);
+
+        Bitmap hermitCrabImage = SafeCloneBitmap(() => SyncMagic.Properties.Resources.octopus) ?? new Bitmap(8, 8);
 
         hermitCrab = new HermitCrab
         {
@@ -728,6 +738,12 @@ public class FishTankSimulation
             Brush sandBrush = new SolidBrush(Color.SandyBrown);
             g.FillPolygon(sandBrush, sandPoints);
 
+            // Draw static decor first so plants can overlap slightly
+            foreach (var d in decors)
+            {
+                g.DrawImage(d.Image, d.X, d.Y);
+            }
+
             float plantThresholdY = canvasHeight * 0.6f;
 
             foreach (var plant in plants)
@@ -846,5 +862,84 @@ public class FishTankSimulation
         }
 
         return bmp;
+    }
+
+    // Helpers to locate bitmaps in Resources by keyword, safely
+    private static Bitmap? SafeCloneBitmap(Func<Bitmap> getter)
+    {
+        try { var b = getter(); return b != null ? new Bitmap(b) : null; } catch { return null; }
+    }
+
+    private Bitmap? FindResourceBitmap(params string[] keywords)
+    {
+        try
+        {
+            var rm = SyncMagic.Properties.Resources.ResourceManager;
+            var set = rm.GetResourceSet(CultureInfo.CurrentUICulture, true, true);
+            foreach (DictionaryEntry entry in set)
+            {
+                var key = entry.Key as string;
+                if (string.IsNullOrEmpty(key)) continue;
+                if (keywords.Any(k => key.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0))
+                {
+                    if (entry.Value is Bitmap bmp)
+                        return new Bitmap(bmp);
+                }
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    private int SpawnSpecies(string keyword, int count)
+    {
+        int added = 0;
+        for (int i = 0; i < count; i++)
+        {
+            // Prefer matching fishTypes by keyword
+            var candidates = fishTypes.Where(ft => TryMatchBitmap(ft.Image, keyword)).ToList();
+            FishType? ftPick = candidates.Count > 0 ? candidates[rand.Next(candidates.Count)] : null;
+            if (ftPick == null)
+            {
+                // Fallback to gold
+                var goldCandidates = fishTypes.Where(ft => TryMatchBitmap(ft.Image, "gold")).ToList();
+                ftPick = goldCandidates.Count > 0 ? goldCandidates[rand.Next(goldCandidates.Count)] : (fishTypes.Count > 0 ? fishTypes[rand.Next(Math.Min(2, fishTypes.Count))] : null);
+            }
+            if (ftPick != null)
+            {
+                AddFish(ftPick);
+                added++;
+            }
+        }
+        return added;
+    }
+
+    private bool TryMatchBitmap(Bitmap bmp, string keyword)
+    {
+        // We can't read the original resource name from the bitmap, so approximate by size-based grouping
+        // and assume the fishTypes were created from resource search; keyword matching applied earlier.
+        // Treat gold keyword as anything from the two gold fish bitmaps if present.
+        if (keyword.Equals("gold", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var g1 = SyncMagic.Properties.Resources.big_gold_fish;
+                var g2 = SyncMagic.Properties.Resources.gold_fish;
+                return (bmp.Width == g1.Width && bmp.Height == g1.Height) || (bmp.Width == g2.Width && bmp.Height == g2.Height);
+            }
+            catch { return false; }
+        }
+        // For others, assume they were added via FindResourceBitmap and thus present in fishTypes only if matching
+        return true;
+    }
+
+    private void TryAddDecorAtBottom(string keyword, int preferredHeight)
+    {
+        var bmp = FindResourceBitmap(keyword);
+        if (bmp == null) return;
+        var scaled = ScaleToHeight(bmp, preferredHeight);
+        float x = rand.Next(0, Math.Max(1, canvasWidth - scaled.Width));
+        float y = canvasHeight - scaled.Height - 1;
+        decors.Add(new Decor { X = x, Y = y, Image = scaled });
     }
 }
