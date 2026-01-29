@@ -53,9 +53,10 @@ public class FishTankSimulation
         public float MaxSpeedXLimit { get; private set; }
         public float MaxSpeedYLimit { get; private set; }
 
-        private static readonly (float minX, float maxX, float minY, float maxY, float limitX, float limitY) SlowSpeed = (-0.5f, 0.5f, -0.2f, 0.2f, 1.0f, 0.4f);
-        private static readonly (float minX, float maxX, float minY, float maxY, float limitX, float limitY) MediumSpeed = (-1.5f, 1.5f, -0.5f, 0.5f, 3.0f, 1.0f);
-        private static readonly (float minX, float maxX, float minY, float maxY, float limitX, float limitY) FastSpeed = (-2.0f, 2.0f, -2.3f, 2.3f, 3.0f, 2.7f);
+        // Base speed ranges (reduced to make motion subtle and smooth)
+        private static readonly (float minX, float maxX, float minY, float maxY, float limitX, float limitY) SlowSpeed = (-0.35f, 0.35f, -0.12f, 0.12f, 0.6f, 0.25f);
+        private static readonly (float minX, float maxX, float minY, float maxY, float limitX, float limitY) MediumSpeed = (-1.0f, 1.0f, -0.35f, 0.35f, 1.6f, 0.6f);
+        private static readonly (float minX, float maxX, float minY, float maxY, float limitX, float limitY) FastSpeed = (-1.2f, 1.2f, -0.9f, 0.9f, 1.8f, 1.4f);
 
         public FishType(Bitmap image, FishSpeedCategory speedCategory)
         {
@@ -127,6 +128,10 @@ public class FishTankSimulation
     }
 
     private HermitCrab hermitCrab;
+
+    // Global motion scaling to keep fish movements subtle
+    private const float MovementScale = 0.7f;   // overall velocity scale
+    private const float VerticalScale = 0.6f;   // damp vertical motion a bit more than horizontal
 
     public FishTankSimulation()
     {
@@ -325,10 +330,10 @@ public class FishTankSimulation
 
     private void AddFish(FishType fishType)
     {
-        float baseSpeedX = (float)(rand.NextDouble() * (fishType.MaxSpeedX - fishType.MinSpeedX) + fishType.MinSpeedX);
-        float baseSpeedY = (float)(rand.NextDouble() * (fishType.MaxSpeedY - fishType.MinSpeedY) + fishType.MinSpeedY);
-        float maxSpeedX = fishType.MaxSpeedXLimit;
-        float maxSpeedY = fishType.MaxSpeedYLimit;
+        float baseSpeedX = (float)(rand.NextDouble() * (fishType.MaxSpeedX - fishType.MinSpeedX) + fishType.MinSpeedX) * MovementScale;
+        float baseSpeedY = (float)(rand.NextDouble() * (fishType.MaxSpeedY - fishType.MinSpeedY) + fishType.MinSpeedY) * MovementScale * VerticalScale;
+        float maxSpeedX = fishType.MaxSpeedXLimit * MovementScale;
+        float maxSpeedY = fishType.MaxSpeedYLimit * MovementScale * VerticalScale;
 
         Fish fish = new Fish
         {
@@ -342,7 +347,7 @@ public class FishTankSimulation
             FacingRight = baseSpeedX >= 0,
             DesiredSpeedX = baseSpeedX,
             DesiredSpeedY = baseSpeedY,
-            DirectionChangeTimer = rand.Next(30, 120),
+            DirectionChangeTimer = rand.Next(90, 240),
             MaxLifespan = 1500,
             Lifespan = rand.Next(500, 1500),
             IsDead = false,
@@ -437,7 +442,7 @@ public class FishTankSimulation
                     {
                         fish.IsEating = false;
 
-                        fish.DirectionChangeTimer = rand.Next(30, 120);
+                        fish.DirectionChangeTimer = rand.Next(90, 240);
 
                         fish.DesiredSpeedX = (float)(rand.NextDouble() * fish.MaxSpeedX * 2 - fish.MaxSpeedX);
                         fish.DesiredSpeedY = (float)(rand.NextDouble() * fish.MaxSpeedY * 2 - fish.MaxSpeedY);
@@ -456,12 +461,12 @@ public class FishTankSimulation
 
                     if (distance > 0)
                     {
-                        float speedMultiplier = 2.0f;
+                        float speedMultiplier = 1.5f; // less aggressive rush to food
                         fish.DesiredSpeedX = (dx / distance) * fish.MaxSpeedX * speedMultiplier;
                         fish.DesiredSpeedY = (dy / distance) * fish.MaxSpeedY * speedMultiplier;
                     }
 
-                    float speedAdjustmentFactor = 0.2f;
+                    float speedAdjustmentFactor = 0.15f; // smoother turn toward food
 
                     fish.SpeedX += (fish.DesiredSpeedX - fish.SpeedX) * speedAdjustmentFactor;
                     fish.SpeedY += (fish.DesiredSpeedY - fish.SpeedY) * speedAdjustmentFactor;
@@ -531,7 +536,7 @@ public class FishTankSimulation
                         fish.DirectionChangeTimer = rand.Next(30, 120);
                     }
 
-                    float speedAdjustmentFactor = 0.03f;
+                    float speedAdjustmentFactor = 0.02f; // smoother, less twitchy wandering
 
                     fish.SpeedX += (fish.DesiredSpeedX - fish.SpeedX) * speedAdjustmentFactor;
                     fish.SpeedY += (fish.DesiredSpeedY - fish.SpeedY) * speedAdjustmentFactor;

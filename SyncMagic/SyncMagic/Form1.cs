@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
@@ -68,7 +70,7 @@ namespace SyncMagic
             List<string> cities = new List<string>
             {
                 "Helsinki", "Tampere", "Turku", "Oulu",
-                "Jyväskylä", "Kangasala", "Rovaniemi", "Mänttä-Vilppula"
+                "Jyvï¿½skylï¿½", "Kangasala", "Rovaniemi", "Mï¿½nttï¿½-Vilppula"
             };
             weatherDisplay = new WeatherDisplay(cities);
 
@@ -380,15 +382,38 @@ namespace SyncMagic
 
             try
             {
-                int frameIntervalMs = 250; // Interval between frames  
-                int durationMs = 10000; // Total duration  
-                int frameCount = durationMs / frameIntervalMs;
+                int deviceLoopMs = 40000;       // Target runtime of GIF on device (tuneable)
+                const int safetyMs = 400;       // Headroom to avoid device looping old GIF
+                double emaEncodeMs = 150;       // EMA of encode time
+                const int minFrames = 10;
+                const int maxFrames = 100;
+                const int baseCaptureIntervalMs = 250; // baseline pacing for capture
+                double emaUploadMs = 1200;      // Initial EMA upload estimate
+                const double emaAlpha = 0.30;   // EMA smoothing factor
+                const int targetPauseMs = 3000; // Desired max pause (encode+upload) in ms
+                const double adjustMin = 0.5;   // Minimum scale step per cycle
+                const double adjustMax = 1.25;  // Maximum scale step per cycle
+
+                double frameScale = 1.0;        // Multiplier to adjust frames based on measured pause
 
                 List<Bitmap> gifFrames = new List<Bitmap>();
 
                 while (!cancellationToken.IsCancellationRequested)
                 {
                     gifFrames.Clear();
+
+                    // Compute capture budget so that encode+upload finishes before current device loop ends
+                    int captureBudgetMs = deviceLoopMs - (int)Math.Ceiling(emaUploadMs) - safetyMs - (int)Math.Ceiling(emaEncodeMs);
+                    if (captureBudgetMs < 1000) captureBudgetMs = 1000; // at least 1s of motion
+
+                    // Fewer frames when budget is small (apply dynamic scaling to hit pause target)
+                    int baseFrames = Math.Max(1, captureBudgetMs / baseCaptureIntervalMs);
+                    int frameCount = (int)Math.Round(baseFrames * frameScale);
+                    frameCount = Math.Clamp(frameCount, minFrames, maxFrames);
+                    if (frameCount < 1) frameCount = 1;
+
+                    // Distribute capture over captureBudgetMs
+                    int captureIntervalMs = Math.Max(1, captureBudgetMs / frameCount);
 
                     // Collect frames for the GIF  
                     for (int i = 0; i < frameCount; i++)
@@ -435,27 +460,41 @@ namespace SyncMagic
                             picScreen.Invalidate();
                         }
 
-                        //Wait for frameIntervalMs  
-                        await Task.Delay(frameIntervalMs - 30, cancellationToken);
+                        // Wait between captures with small headroom
+                        int waitMs = Math.Max(1, captureIntervalMs - 30);
+                        await Task.Delay(waitMs, cancellationToken);
                     }
 
                     if (cancellationToken.IsCancellationRequested)
                         break;
 
-                    // Assemble frames into GIF with reduced quality  
-                    using (var gif = AnimatedGif.AnimatedGif.Create("screen.gif", frameIntervalMs))
+                    // Set GIF per-frame delay to stretch to the full device loop
+                    int gifFrameDelayMs = Math.Max(1, deviceLoopMs / Math.Max(1, gifFrames.Count));
+
+                    // Measure encode time
+                    var encodeSw = Stopwatch.StartNew();
+                    // Assemble frames into GIF with reduced quality
+                    using (var gif = AnimatedGif.AnimatedGif.Create("screen.gif", gifFrameDelayMs))
                     {
                         foreach (var image in gifFrames)
                         {
                             gif.AddFrame(image, quality: GifQuality.Bit4);
                         }
                     }
+                    encodeSw.Stop();
+                    var encodeDuration = encodeSw.Elapsed;
 
-                    // Upload the GIF  
+                    // Upload the GIF and measure actual upload time
+                    var sw = Stopwatch.StartNew();
                     await imageUploader.UploadGifAsync(txtIPAddress, "screen.gif");
-                    //await Task.Delay(frameIntervalMs-20, cancellationToken);
+                    sw.Stop();
+                    var uploadDuration = sw.Elapsed;
 
-                    // Update the PictureBox with the GIF  
+                    // Log measured pause components (encode + upload)
+                    var totalPause = encodeDuration + uploadDuration;
+                    Debug.WriteLine($"GIF encode: {encodeDuration.TotalMilliseconds:F0} ms, upload: {uploadDuration.TotalMilliseconds:F0} ms, pause total: {totalPause.TotalMilliseconds:F0} ms, frames: {gifFrames.Count}, loop: {deviceLoopMs} ms, capture window: {captureBudgetMs} ms, frameScale: {frameScale:F2}");
+
+                    // Update PictureBox to show the new GIF
                     if (this.InvokeRequired)
                     {
                         this.Invoke(new Action(() =>
@@ -474,6 +513,17 @@ namespace SyncMagic
                         img.Dispose();
                     }
                     gifFrames.Clear();
+
+                    // Update EMA for next cycle
+                    emaUploadMs = emaAlpha * uploadDuration.TotalMilliseconds + (1 - emaAlpha) * emaUploadMs;
+                    emaEncodeMs = emaAlpha * encodeDuration.TotalMilliseconds + (1 - emaAlpha) * emaEncodeMs;
+
+                    // Adapt frame scaling to drive pause toward target
+                    double s = targetPauseMs / Math.Max(1.0, totalPause.TotalMilliseconds);
+                    s = Math.Clamp(s, adjustMin, adjustMax);
+                    frameScale = Math.Clamp(frameScale * s, 0.1, 3.0);
+
+                    // Immediately start capturing next segment; upload will finish before next loop end by design
                 }
             }
             catch (OperationCanceledException)
