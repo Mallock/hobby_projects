@@ -7,6 +7,7 @@ public class FishTankSimulation
 {
     private int canvasWidth = 240;
     private int canvasHeight = 240;
+    private readonly int bottomBarHeight = 30; // status bar height (now at top)
     DigitalClockWeather clockWeather = new DigitalClockWeather();
     private Dictionary<FishType, int> fishTypeCounts;
     private PointF[] sandPoints;
@@ -153,6 +154,7 @@ public class FishTankSimulation
         for (int i = 0; i < sandWavePoints; i++)
         {
             float x = i * sandWaveInterval;
+            // Sand sits at the bottom of the aquarium, unaffected by the top bar
             float y = canvasHeight - 20 + sandWaveAmplitude * (float)Math.Sin((i * sandWaveFrequency) + randomPhase);
 
             sandPoints[i] = new PointF(x, y);
@@ -257,9 +259,10 @@ public class FishTankSimulation
 
         plants = new List<Plant>();
         Dictionary<Bitmap, int> plantImageCounts = new Dictionary<Bitmap, int>();
-        int numPlants = 6;
+        int numPlants = 4;
         int maxDuplicatesPerPlant = 2;
         float approximateSpacing = canvasWidth / numPlants;
+        float waterHeightForPlants = canvasHeight; // plants rest on bottom
 
         int plantsAdded = 0;
         while (plantsAdded < numPlants)
@@ -278,7 +281,7 @@ public class FishTankSimulation
                 float x = plantsAdded * approximateSpacing + rand.Next(-10, 10);
                 x = Math.Max(0, Math.Min(x, canvasWidth - plantImage.Width));
 
-                float y = canvasHeight - plantImage.Height - 5 + rand.Next(-5, 5);
+                float y = waterHeightForPlants - plantImage.Height - 5 + rand.Next(-5, 5);
 
                 Plant plant = new Plant
                 {
@@ -334,11 +337,12 @@ public class FishTankSimulation
         float baseSpeedY = (float)(rand.NextDouble() * (fishType.MaxSpeedY - fishType.MinSpeedY) + fishType.MinSpeedY) * MovementScale * VerticalScale;
         float maxSpeedX = fishType.MaxSpeedXLimit * MovementScale;
         float maxSpeedY = fishType.MaxSpeedYLimit * MovementScale * VerticalScale;
+        float topWaterMargin = bottomBarHeight + 20; // keep fish below the top status bar
 
         Fish fish = new Fish
         {
             X = rand.Next(20, canvasWidth - 20),
-            Y = rand.Next(20, canvasHeight - 60),
+            Y = rand.Next((int)topWaterMargin, canvasHeight - 60),
             SpeedX = baseSpeedX,
             SpeedY = baseSpeedY,
             MaxSpeedX = maxSpeedX,
@@ -375,7 +379,7 @@ public class FishTankSimulation
             Food food = new Food
             {
                 X = rand.Next(10, canvasWidth - 10),
-                Y = 0
+                Y = bottomBarHeight // drop food from just below the top bar
             };
             foodList.Add(food);
         }
@@ -557,9 +561,10 @@ public class FishTankSimulation
                     fish.X = canvasWidth;
                 }
 
-                if (fish.Y <= 20)
+                int topLimit = bottomBarHeight + 20;
+                if (fish.Y <= topLimit)
                 {
-                    fish.Y = 20;
+                    fish.Y = topLimit;
                     fish.SpeedY = Math.Abs(fish.SpeedY) * 0.5f;
                     fish.DesiredSpeedY = Math.Abs(fish.DesiredSpeedY);
                 }
@@ -840,8 +845,10 @@ public class FishTankSimulation
                 }
             }
 
-            Rectangle clockArea = new Rectangle(0, 20, 120, 80);
-            clockWeather.DrawSmallClock(g, clockArea);
+            // Draw a bottom status bar with time (left) and temperature (right)
+            int barHeight = bottomBarHeight; // unified bar height
+            Rectangle topBar = new Rectangle(0, 0, canvasWidth, barHeight);
+            clockWeather.DrawBottomStatusBar(g, topBar);
         }
 
         return bmp;

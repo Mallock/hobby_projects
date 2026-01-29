@@ -11,6 +11,7 @@ namespace SyncMagic
     {
         private int canvasWidth = 240;
         private int canvasHeight = 240;
+        private readonly int bottomBarHeight = 30; // status bar height (now at top)
         DigitalClockWeather clockWeather = new DigitalClockWeather();
         private Dictionary<FishType, int> fishTypeCounts;
         private PointF[] sandPoints;
@@ -243,6 +244,7 @@ namespace SyncMagic
             int numPlants = 5;
             int maxDuplicatesPerPlant = 2;
             float approximateSpacing = canvasWidth / numPlants;
+            float waterHeightForPlants = canvasHeight;
 
             int plantsAdded = 0;
             while (plantsAdded < numPlants)
@@ -261,7 +263,7 @@ namespace SyncMagic
                     float x = plantsAdded * approximateSpacing + rand.Next(-10, 10);
                     x = Math.Max(0, Math.Min(x, canvasWidth - plantImage.Width));
 
-                    float y = canvasHeight - plantImage.Height - 5 + rand.Next(-5, 5);
+                    float y = waterHeightForPlants - plantImage.Height - 5 + rand.Next(-5, 5);
 
                     Plant plant = new Plant
                     {
@@ -321,7 +323,7 @@ namespace SyncMagic
             Fish fish = new Fish
             {
                 X = rand.Next(20, canvasWidth - 20),
-                Y = rand.Next(20, canvasHeight - 60),
+                Y = rand.Next((bottomBarHeight + 20), canvasHeight - 60),
                 SpeedX = baseSpeedX,
                 SpeedY = baseSpeedY,
                 MaxSpeedX = maxSpeedX,
@@ -538,9 +540,9 @@ namespace SyncMagic
                         fish.X = canvasWidth;
                     }
 
-                    if (fish.Y <= 20)
+                    if (fish.Y <= (bottomBarHeight + 20))
                     {
-                        fish.Y = 20;
+                        fish.Y = bottomBarHeight + 20;
                         fish.SpeedY = Math.Abs(fish.SpeedY) * 0.5f;
                         fish.DesiredSpeedY = Math.Abs(fish.DesiredSpeedY);
                     }
@@ -820,8 +822,10 @@ namespace SyncMagic
                     }
                 }
 
-                Rectangle clockArea = new Rectangle(0, 20, 120, 80);
-                clockWeather.DrawSmallClock(g, clockArea);
+                // Draw a top status bar with time (left) and temperature (right)
+                int barHeight = bottomBarHeight;
+                Rectangle topBar = new Rectangle(0, 0, canvasWidth, barHeight);
+                clockWeather.DrawBottomStatusBar(g, topBar);
             }
 
             return bmp;

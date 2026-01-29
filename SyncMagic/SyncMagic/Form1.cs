@@ -401,17 +401,17 @@ namespace SyncMagic
 
             try
             {
-                int deviceLoopMs = 40000;       // Target runtime of GIF on device (tuneable)
-                const int safetyMs = 400;       // Headroom to avoid device looping old GIF
+                int deviceLoopMs = 60000;       // Target runtime of GIF on device (tuneable)
+                const int safetyMs = 200;       // Headroom to avoid device looping old GIF
                 double emaEncodeMs = 150;       // EMA of encode time
                 const int minFrames = 10;
-                const int maxFrames = 100;
+                const int maxFrames = 200;
                 const int baseCaptureIntervalMs = 250; // baseline pacing for capture
                 double emaUploadMs = 1200;      // Initial EMA upload estimate
                 const double emaAlpha = 0.30;   // EMA smoothing factor
                 const int targetPauseMs = 3000; // Desired max pause (encode+upload) in ms
-                const double adjustMin = 0.5;   // Minimum scale step per cycle
-                const double adjustMax = 1.25;  // Maximum scale step per cycle
+                const double adjustMin = 1.5;   // Minimum scale step per cycle
+                const double adjustMax = 2.25;  // Maximum scale step per cycle
 
                 double frameScale = 1.0;        // Multiplier to adjust frames based on measured pause
 

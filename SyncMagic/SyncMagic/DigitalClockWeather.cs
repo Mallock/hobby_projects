@@ -584,6 +584,90 @@ public class DigitalClockWeather
         }
     }
 
+    // Draw a black bottom bar with time on the left and temperature on the right
+    public void DrawBottomStatusBar(Graphics g, Rectangle area)
+    {
+        try
+        {
+            // Background bar
+            using (Brush barBrush = new SolidBrush(Color.Black))
+            {
+                g.FillRectangle(barBrush, area);
+            }
+
+            // Prepare strings
+            DateTime now = DateTime.Now;
+            string timeString = now.ToString("HH:mm", CultureInfo.InvariantCulture);
+
+            var weatherData = GetWeatherData();
+            string tempString = weatherData != null ? $"{weatherData.Temperature}°C" : "N/A";
+
+            // Layout
+            int padding = 4; // slightly smaller padding to allow bigger fonts
+            int innerX = area.X + padding;
+            int innerY = area.Y + padding;
+            int innerW = area.Width - padding * 2;
+            int innerH = area.Height - padding * 2;
+
+            // Split into left/right halves
+            int leftW = innerW / 2 - padding / 2;
+            int rightW = innerW - leftW;
+
+            // Determine font sizes to fit height and half widths
+            float maxFontByHeight = innerH + 2; // allow a touch larger fonts while still fitting
+            float timeFontSize = FindOptimalFontSize(g, timeString, leftW, innerH, maxFontByHeight);
+            float tempFontSize = FindOptimalFontSize(g, tempString, rightW, innerH, maxFontByHeight);
+            float fontSize = Math.Min(timeFontSize, tempFontSize);
+
+            // Try to grow font size a bit if both strings still fit
+            float candidate = fontSize;
+            for (int i = 0; i < 3; i++)
+            {
+                float test = candidate * 1.08f; // 8% growth step
+                using (Font testTime = new Font(FontFamily.GenericSansSerif, test, FontStyle.Bold))
+                using (Font testTemp = new Font(FontFamily.GenericSansSerif, test, FontStyle.Regular))
+                {
+                    SizeF t1 = g.MeasureString(timeString, testTime);
+                    SizeF t2 = g.MeasureString(tempString, testTemp);
+                    bool fitsLeft = t1.Width <= leftW && t1.Height <= innerH;
+                    bool fitsRight = t2.Width <= rightW && t2.Height <= innerH;
+                    if (fitsLeft && fitsRight)
+                    {
+                        candidate = test;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+            }
+            fontSize = candidate;
+
+            using (Font timeFont = new Font(FontFamily.GenericSansSerif, fontSize, FontStyle.Bold))
+            using (Font tempFont = new Font(FontFamily.GenericSansSerif, fontSize, FontStyle.Regular))
+            using (Brush timeBrush = new SolidBrush(Color.White))
+            using (Brush tempBrush = new SolidBrush(Color.LightBlue))
+            {
+                // Measure to vertically center
+                SizeF timeSize = g.MeasureString(timeString, timeFont);
+                SizeF tempSize = g.MeasureString(tempString, tempFont);
+
+                float timeX = innerX;
+                float timeY = innerY + (innerH - timeSize.Height) / 2f;
+                g.DrawString(timeString, timeFont, timeBrush, timeX, timeY);
+
+                float tempX = area.X + area.Width - padding - tempSize.Width;
+                float tempY = innerY + (innerH - tempSize.Height) / 2f;
+                g.DrawString(tempString, tempFont, tempBrush, tempX, tempY);
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Error in DrawBottomStatusBar: {ex.Message}");
+            // Fail silently to avoid breaking rendering
+        }
+    }
+
     private float FindOptimalFontSize(Graphics g, string text, float maxWidth, float maxHeight, float maxFontSize)
     {
         float minFontSize = 5f;
