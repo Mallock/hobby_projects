@@ -233,8 +233,8 @@ public class FishTankSimulation
 
         plants = new List<Plant>();
         Dictionary<Bitmap, int> plantImageCounts = new Dictionary<Bitmap, int>();
-        int numPlants = 5;
-        int maxDuplicatesPerPlant = 2;
+        int numPlants = 3; // toned down for 240px
+        int maxDuplicatesPerPlant = 1; // reduce repetition
         float approximateSpacing = canvasWidth / numPlants;
         float waterHeightForPlants = canvasHeight; // plants rest on bottom
 
@@ -252,23 +252,34 @@ public class FishTankSimulation
             {
                 plantImageCounts[plantImage]++;
 
-                float x = plantsAdded * approximateSpacing + rand.Next(-10, 10);
-                x = Math.Max(0, Math.Min(x, canvasWidth - plantImage.Width));
-
-                // Normalize plant height for consistent look
-                int targetH = rand.Next(26, 48);
+                // Normalize plant height and try to avoid overlap with decor
+                int targetH = rand.Next(22, 36);
                 Bitmap scaledPlant = ScaleToHeight(plantImage, targetH);
 
-                float y = waterHeightForPlants - scaledPlant.Height - 5 + rand.Next(-3, 3);
+                float y = waterHeightForPlants - scaledPlant.Height - 5 + rand.Next(-2, 2);
 
-                Plant plant = new Plant
+                // Try multiple placements to avoid overlapping decor
+                bool placed = false;
+                for (int attempt = 0; attempt < 8 && !placed; attempt++)
                 {
-                    X = x,
-                    Y = y,
-                    Image = scaledPlant
-                };
-                plants.Add(plant);
-                plantsAdded++;
+                    float x = plantsAdded * approximateSpacing + rand.Next(-12, 12);
+                    x = Math.Max(0, Math.Min(x, canvasWidth - scaledPlant.Width));
+
+                    var rect = new RectangleF(x, y, scaledPlant.Width, scaledPlant.Height);
+                    bool intersectsDecor = decors.Any(d => RectsIntersect(rect, new RectangleF(d.X, d.Y, d.Image.Width, d.Image.Height), 4));
+                    if (!intersectsDecor)
+                    {
+                        Plant plant = new Plant { X = x, Y = y, Image = scaledPlant };
+                        plants.Add(plant);
+                        plantsAdded++;
+                        placed = true;
+                    }
+                }
+                if (!placed)
+                {
+                    // give up on this plant to keep bottom clean
+                    scaledPlant.Dispose();
+                }
             }
             else
             {
@@ -294,11 +305,16 @@ public class FishTankSimulation
 
         bubbles = new List<Bubble>();
 
-        // Static decor at bottom: castle and optionally hermit crab / octopus sprite
-        TryAddDecorAtBottom("castle", preferredHeight: Math.Min(70, Math.Max(46, canvasHeight / 4)));
-        TryAddDecorAtBottom("hermit", preferredHeight: 36);
-        TryAddDecorAtBottom("crab", preferredHeight: 36);
-        TryAddDecorAtBottom("octopus", preferredHeight: 40);
+        // Static decor at bottom (toned-down): choose up to 2 items among castle/hermit/crab/octopus
+        var decorCandidates = new List<(string key, int h)>
+        {
+            ("castle", Math.Min(56, Math.Max(44, canvasHeight / 5))),
+            ("hermit", 32),
+            ("crab", 32),
+            ("octopus", 36)
+        };
+        foreach (var kv in decorCandidates.OrderBy(_ => rand.Next()).Take(2))
+            TryAddDecorAtBottom(kv.key, kv.h);
 
         Bitmap hermitCrabImage = SafeCloneBitmap(() => SyncMagic.Properties.Resources.octopus) ?? new Bitmap(8, 8);
 
@@ -938,8 +954,23 @@ public class FishTankSimulation
         var bmp = FindResourceBitmap(keyword);
         if (bmp == null) return;
         var scaled = ScaleToHeight(bmp, preferredHeight);
+        // Try to keep some spacing from other decor
         float x = rand.Next(0, Math.Max(1, canvasWidth - scaled.Width));
+        var rect = new RectangleF(x, canvasHeight - scaled.Height - 1, scaled.Width, scaled.Height);
+        int attempts = 0;
+        while (decors.Any(d => RectsIntersect(rect, new RectangleF(d.X, d.Y, d.Image.Width, d.Image.Height), 6)) && attempts++ < 10)
+        {
+            x = rand.Next(0, Math.Max(1, canvasWidth - scaled.Width));
+            rect = new RectangleF(x, canvasHeight - scaled.Height - 1, scaled.Width, scaled.Height);
+        }
         float y = canvasHeight - scaled.Height - 1;
         decors.Add(new Decor { X = x, Y = y, Image = scaled });
+    }
+
+    private static bool RectsIntersect(RectangleF a, RectangleF b, float inflate)
+    {
+        a.Inflate(inflate, inflate);
+        b.Inflate(inflate, inflate);
+        return a.IntersectsWith(b);
     }
 }
