@@ -141,7 +141,9 @@ namespace SyncMagic
             }
             chkMirrorStatusBar.CheckedChanged += (s, e) =>
             {
+                // Apply mirroring globally (full frame) and to status bar
                 RenderOptions.MirrorStatusBar = chkMirrorStatusBar.Checked;
+                RenderOptions.MirrorFrame = chkMirrorStatusBar.Checked;
             };
             Controls.Add(chkMirrorStatusBar);
 
@@ -505,7 +507,7 @@ namespace SyncMagic
 
             try
             {
-                int deviceLoopMs = 60000;       // Target runtime of GIF on device (tuneable)
+                int deviceLoopMs = 10000;       // Target runtime of GIF on device (tuneable)
                 const int safetyMs = 200;       // Headroom to avoid device looping old GIF
                 double emaEncodeMs = 150;       // EMA of encode time
                 const int minFrames = 10;
@@ -552,6 +554,12 @@ namespace SyncMagic
 
                         // Apply rotation if requested
                         ApplyRotationInPlace(resizedFrame);
+
+                        // Apply full-frame mirroring if requested (affects all apps, e.g., RSS)
+                        if (RenderOptions.MirrorFrame)
+                        {
+                            resizedFrame.RotateFlip(RotateFlipType.RotateNoneFlipX);
+                        }
 
                         // Add the resized/rotated frame to the list  
                         gifFrames.Add(resizedFrame);

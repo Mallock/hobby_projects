@@ -5,4 +5,7 @@ public static class RenderOptions
 
     // When true, only the status bar (clock/temp) is mirrored horizontally.
     public static volatile bool MirrorStatusBar = false;
+
+    // When true, mirror the entire rendered frame horizontally.
+    public static volatile bool MirrorFrame = false;
 }
