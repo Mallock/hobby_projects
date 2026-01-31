@@ -28,15 +28,15 @@ namespace SyncMagic
 
         // Frame capture settings
         private const int MinFrames = 8;
-        private const int MaxFrames = 120;  // Reduced for 1MB target
+        private const int MaxFrames = 900;  // Reduced for 1MB target
         private const int BaseCaptureIntervalMs = 250;
-        private const int DeviceLoopMs = 30000;
+        private const int DeviceLoopMs = 60000;
         private const int SafetyMs = 200;
 
         // GIF optimization for 1MB target
         private const int TargetGifSizeBytes = 1024 * 1024;  // 1MB
         private const int MinGifSizeBytes = 800 * 1024;      // 800KB minimum for quality
-        private const int PauseStartMs = 1000;               // 2 second pause at start
+        private const int PauseStartMs = 2000;               // 2 second pause at start
         private const int PauseEndMs = 2000;                 // 2 second pause at end
         private const bool UseEvenFrameDistribution = false; // true = uniform delays, false = smooth cosine easing
 

@@ -3,292 +3,158 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 
-public enum StarType
+namespace SyncMagic
 {
-    RedDwarf,
-    YellowDwarf,
-    BlueGiant,
-    WhiteDwarf,
-    OrangeK
-}
-
-public enum WorldType
-{
-    Rocky,
-    GasGiant,
-    Ice,
-    Desert,
-    Ocean,
-    Ringed
-}
-
-public class StarSystemSimulation
-{
-    private readonly int width = 240;
-    private readonly int height = 240;
-    private readonly int safeMargin = 8;
-
-    private readonly Random rng;
-
-    private StarType starType;
-    private Color starColor;
-    private int starRadius;
-
-    // ------------------------------------------------------
-    // SHIPS
-    // ------------------------------------------------------
-
-    private class StarShip
+    public class StarSystemSimulation
     {
-        public PointF Position;
-        public PointF Velocity;
+        private readonly int width = 240;
+        private readonly int height = 240;
+        private readonly int safeMargin = 8;
 
-        public Func<PointF> Origin;
-        public Func<PointF> Destination;
+        private readonly Random rng;
 
-        public float Progress;
-        public float Speed;
+        private Star star;
 
-        public Queue<PointF> Trail = new();
-        public int TrailMax = 14;
-    }
+        // ------------------------------------------------------
+        // SHIPS
+        // ------------------------------------------------------
 
-    private List<StarShip> ships = new();
-
-    // ------------------------------------------------------
-
-    private class Moon
-    {
-        public double Angle;
-        public double AngularVelocity;
-        public int OrbitRadius;
-        public int Radius;
-        public Color Color;
-    }
-
-    private class OrbitingBody
-    {
-        public double Angle;
-        public double AngularVelocity;
-        public int OrbitRadius;
-        public int Radius;
-        public Color Color;
-        public WorldType Type;
-        public bool HasRings;
-
-        public int MoonSystemMaxOrbit;
-        public List<Moon> Moons = new();
-    }
-
-    private List<OrbitingBody> planets = new();
-
-    public StarSystemSimulation(int? seed = null)
-    {
-        rng = seed.HasValue ? new Random(seed.Value) : new Random();
-        GenerateSystem();
-        GenerateShips();
-    }
-
-    // ------------------------------------------------------
-    // SHIP GENERATION
-    // ------------------------------------------------------
-
-    private void GenerateShips()
-    {
-        ships.Clear();
-
-        int shipCount = rng.Next(2, 6);
-
-        for (int i = 0; i < shipCount; i++)
+        private class StarShip
         {
-            var ship = new StarShip();
-            AssignNewRoute(ship);
-            ships.Add(ship);
+            public PointF Position;
+            public PointF Velocity;
+
+            public Func<PointF> Origin;
+            public Func<PointF> Destination;
+
+            public float Progress;
+            public float Speed;
+
+            public Queue<PointF> Trail = new();
+            public int TrailMax = 14;
         }
-    }
 
-    private void AssignNewRoute(StarShip ship)
-    {
-        Func<PointF> GetStar = () =>
-        {
-            return new PointF(width / 2f, height / 2f);
-        };
+        private List<StarShip> ships = new();
 
-        Func<PointF> GetPlanet(OrbitingBody p)
+        // ------------------------------------------------------
+
+        private List<OrbitingBody> planets = new();
+
+        public StarSystemSimulation(int? seed = null)
         {
-            return () =>
+            rng = seed.HasValue ? new Random(seed.Value) : new Random();
+            GenerateSystem();
+            GenerateShips();
+        }
+
+        // ------------------------------------------------------
+        // SHIP GENERATION
+        // ------------------------------------------------------
+
+        private void GenerateShips()
+        {
+            ships.Clear();
+
+            int shipCount = rng.Next(2, 6);
+
+            for (int i = 0; i < shipCount; i++)
             {
-                float cx = width / 2f;
-                float cy = height / 2f;
-
-                return new PointF(
-                    (float)(cx + Math.Cos(p.Angle) * p.OrbitRadius),
-                    (float)(cy + Math.Sin(p.Angle) * p.OrbitRadius)
-                );
-            };
+                var ship = new StarShip();
+                AssignNewRoute(ship);
+                ships.Add(ship);
+            }
         }
 
-        bool starRoute = rng.Next(100) < 35;
-
-        OrbitingBody p1 = planets[rng.Next(planets.Count)];
-        OrbitingBody p2 = planets[rng.Next(planets.Count)];
-
-        if (starRoute)
+        private void AssignNewRoute(StarShip ship)
         {
-            ship.Origin = GetStar;
-            ship.Destination = GetPlanet(p1);
-        }
-        else
-        {
-            ship.Origin = GetPlanet(p1);
-            ship.Destination = GetPlanet(p2);
-        }
-
-        ship.Progress = 0f;
-        ship.Speed = 0.002f + (float)rng.NextDouble() * 0.0035f;
-
-        ship.Position = ship.Origin();
-        ship.Trail.Clear();
-    }
-
-    // ------------------------------------------------------
-    // SYSTEM GENERATION
-    // ------------------------------------------------------
-
-    private void GenerateSystem()
-    {
-        starType = (StarType)rng.Next(Enum.GetNames(typeof(StarType)).Length);
-        (starColor, starRadius) = GetStarVisuals(starType);
-
-        planets.Clear();
-
-        int maxOrbit = (Math.Min(width, height) / 2) - safeMargin;
-        int orbit = Math.Max(starRadius + 18, 34);
-
-        int planetCount = rng.Next(4, 11);
-
-        for (int i = 0; i < planetCount; i++)
-        {
-            var planet = CreatePlanet();
-            GenerateMoons(planet);
-
-            int spacing =
-                10 +
-                planet.Radius +
-                planet.MoonSystemMaxOrbit +
-                (planet.HasRings ? 4 : 0);
-
-            orbit += spacing;
-
-            if (orbit >= maxOrbit - 4)
-                break;
-
-            planet.OrbitRadius = orbit;
-
-            double vel =
-                (0.07 + rng.NextDouble() * 0.05) /
-                Math.Sqrt(Math.Max(orbit, 1));
-
-            if (rng.Next(2) == 0)
-                vel = -vel;
-
-            planet.AngularVelocity = vel;
-            planet.Angle = rng.NextDouble() * Math.PI * 2;
-
-            planets.Add(planet);
-        }
-    }
-
-    // ------------------------------------------------------
-
-    private OrbitingBody CreatePlanet()
-    {
-        var type = (WorldType)rng.Next(Enum.GetNames(typeof(WorldType)).Length);
-
-        int bodyRadius;
-        Color bodyColor;
-
-        switch (type)
-        {
-            case WorldType.GasGiant:
-                bodyRadius = rng.Next(7, 11);
-                bodyColor = WarmMuted(180, 140, 90);
-                break;
-
-            case WorldType.Ice:
-                bodyRadius = rng.Next(3, 6);
-                bodyColor = WarmMuted(210, 220, 230);
-                break;
-
-            case WorldType.Ocean:
-                bodyRadius = rng.Next(4, 7);
-                bodyColor = WarmMuted(70, 120, 170);
-                break;
-
-            case WorldType.Desert:
-                bodyRadius = rng.Next(3, 6);
-                bodyColor = WarmMuted(200, 160, 80);
-                break;
-
-            case WorldType.Ringed:
-                bodyRadius = rng.Next(6, 9);
-                bodyColor = WarmMuted(170, 150, 120);
-                break;
-
-            default:
-                bodyRadius = rng.Next(2, 5);
-                bodyColor = WarmMuted(150, 120, 100);
-                break;
-        }
-
-        return new OrbitingBody
-        {
-            Radius = bodyRadius,
-            Color = bodyColor,
-            Type = type,
-            HasRings = type == WorldType.Ringed && rng.Next(100) < 80
-        };
-    }
-
-    private void GenerateMoons(OrbitingBody planet)
-    {
-        int moonCount = rng.Next(100) switch
-        {
-            < 50 => 0,
-            < 80 => 1,
-            < 95 => 2,
-            _ => 3
-        };
-
-        int orbit = planet.Radius + 5;
-        int maxMoonOrbit = 0;
-
-        for (int i = 0; i < moonCount; i++)
-        {
-            orbit += rng.Next(4, 7);
-
-            int radius = rng.Next(
-                Math.Max(2, planet.Radius / 3),
-                Math.Max(3, (int)(planet.Radius * 0.75))
-            );
-
-            var moon = new Moon
+            Func<PointF> GetStar = () =>
             {
-                Radius = radius,
-                OrbitRadius = orbit,
-                Color = WarmMuted(185, 185, 185),
-                Angle = rng.NextDouble() * Math.PI * 2,
-                AngularVelocity =
-                    (0.13 + rng.NextDouble() * 0.08) /
-                    Math.Sqrt(orbit)
+                return new PointF(width / 2f, height / 2f);
             };
 
-            maxMoonOrbit = Math.Max(maxMoonOrbit, orbit + radius + 2);
-            planet.Moons.Add(moon);
+            Func<PointF> GetPlanet(OrbitingBody p)
+            {
+                return () =>
+                {
+                    float cx = width / 2f;
+                    float cy = height / 2f;
+
+                    return new PointF(
+                        (float)(cx + Math.Cos(p.Angle) * p.OrbitRadius),
+                        (float)(cy + Math.Sin(p.Angle) * p.OrbitRadius)
+                    );
+                };
+            }
+
+            bool starRoute = rng.Next(100) < 35;
+
+            OrbitingBody p1 = planets[rng.Next(planets.Count)];
+            OrbitingBody p2 = planets[rng.Next(planets.Count)];
+
+            if (starRoute)
+            {
+                ship.Origin = GetStar;
+                ship.Destination = GetPlanet(p1);
+            }
+            else
+            {
+                ship.Origin = GetPlanet(p1);
+                ship.Destination = GetPlanet(p2);
+            }
+
+            ship.Progress = 0f;
+            ship.Speed = 0.002f + (float)rng.NextDouble() * 0.0035f;
+
+            ship.Position = ship.Origin();
+            ship.Trail.Clear();
         }
 
-        planet.MoonSystemMaxOrbit = maxMoonOrbit;
-    }
+        // ------------------------------------------------------
+        // SYSTEM GENERATION
+        // ------------------------------------------------------
+
+        private void GenerateSystem()
+        {
+            star = Star.CreateRandom(rng);
+
+            planets.Clear();
+
+            int maxOrbit = (Math.Min(width, height) / 2) - safeMargin;
+            int orbit = Math.Max(star.Radius + 18, 34);
+
+            int planetCount = rng.Next(4, 11);
+
+            for (int i = 0; i < planetCount; i++)
+            {
+                var planet = OrbitingBody.CreateRandom(rng);
+                planet.GenerateMoons(rng);
+
+                int spacing =
+                    10 +
+                    planet.Radius +
+                    planet.MoonSystemMaxOrbit +
+                    (planet.HasRings ? 4 : 0);
+
+                orbit += spacing;
+
+                if (orbit >= maxOrbit - 4)
+                    break;
+
+                planet.OrbitRadius = orbit;
+
+                double vel =
+                    (0.07 + rng.NextDouble() * 0.05) /
+                    Math.Sqrt(Math.Max(orbit, 1));
+
+                if (rng.Next(2) == 0)
+                    vel = -vel;
+
+                planet.AngularVelocity = vel;
+                planet.Angle = rng.NextDouble() * Math.PI * 2;
+
+                planets.Add(planet);
+            }
+        }
 
     // ------------------------------------------------------
 
@@ -455,25 +321,25 @@ public class StarSystemSimulation
 
     private void DrawStar(Graphics g, float cx, float cy)
     {
-        int glow = starRadius + 10;
+        int glow = star.Radius + 10;
 
         using GraphicsPath path = new();
         path.AddEllipse(cx - glow, cy - glow, glow * 2, glow * 2);
 
         using PathGradientBrush pgb = new(path)
         {
-            CenterColor = Color.FromArgb(220, starColor),
-            SurroundColors = new[] { Color.FromArgb(0, starColor) }
+            CenterColor = Color.FromArgb(220, star.Color),
+            SurroundColors = new[] { Color.FromArgb(0, star.Color) }
         };
 
         g.FillEllipse(pgb, cx - glow, cy - glow, glow * 2, glow * 2);
 
-        using SolidBrush core = new(starColor);
+        using SolidBrush core = new(star.Color);
         g.FillEllipse(core,
-            cx - starRadius,
-            cy - starRadius,
-            starRadius * 2,
-            starRadius * 2);
+            cx - star.Radius,
+            cy - star.Radius,
+            star.Radius * 2,
+            star.Radius * 2);
     }
 
     private void DrawRings(Graphics g, float px, float py, int radius)
@@ -491,17 +357,7 @@ public class StarSystemSimulation
         g.DrawEllipse(pen, px - rx2, py - ry2, rx2 * 2, ry2 * 2);
     }
 
-    private (Color color, int radius) GetStarVisuals(StarType type)
-    {
-        return type switch
-        {
-            StarType.RedDwarf => (Color.FromArgb(255, 110, 70), rng.Next(10, 15)),
-            StarType.YellowDwarf => (Color.FromArgb(255, 210, 80), rng.Next(13, 18)),
-            StarType.BlueGiant => (Color.FromArgb(150, 200, 255), rng.Next(16, 22)),
-            StarType.WhiteDwarf => (Color.FromArgb(255, 245, 235), rng.Next(9, 12)),
-            _ => (Color.FromArgb(255, 170, 80), rng.Next(12, 18)),
-        };
-    }
+    
 
     private Color WarmMuted(int r, int g, int b)
     {
@@ -521,4 +377,5 @@ public class StarSystemSimulation
             (int)(c.B + (255 - c.B) * amount)
         );
     }
+}
 }
