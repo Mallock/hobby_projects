@@ -35,6 +35,27 @@ public class StarSystemSimulation
     private int starRadius;
 
     // ------------------------------------------------------
+    // SHIPS
+    // ------------------------------------------------------
+
+    private class StarShip
+    {
+        public PointF Position;
+        public PointF Velocity;
+
+        public Func<PointF> Origin;
+        public Func<PointF> Destination;
+
+        public float Progress;
+        public float Speed;
+
+        public Queue<PointF> Trail = new();
+        public int TrailMax = 14;
+    }
+
+    private List<StarShip> ships = new();
+
+    // ------------------------------------------------------
 
     private class Moon
     {
@@ -65,6 +86,69 @@ public class StarSystemSimulation
     {
         rng = seed.HasValue ? new Random(seed.Value) : new Random();
         GenerateSystem();
+        GenerateShips();
+    }
+
+    // ------------------------------------------------------
+    // SHIP GENERATION
+    // ------------------------------------------------------
+
+    private void GenerateShips()
+    {
+        ships.Clear();
+
+        int shipCount = rng.Next(2, 6);
+
+        for (int i = 0; i < shipCount; i++)
+        {
+            var ship = new StarShip();
+            AssignNewRoute(ship);
+            ships.Add(ship);
+        }
+    }
+
+    private void AssignNewRoute(StarShip ship)
+    {
+        Func<PointF> GetStar = () =>
+        {
+            return new PointF(width / 2f, height / 2f);
+        };
+
+        Func<PointF> GetPlanet(OrbitingBody p)
+        {
+            return () =>
+            {
+                float cx = width / 2f;
+                float cy = height / 2f;
+
+                return new PointF(
+                    (float)(cx + Math.Cos(p.Angle) * p.OrbitRadius),
+                    (float)(cy + Math.Sin(p.Angle) * p.OrbitRadius)
+                );
+            };
+        }
+
+        bool starRoute = rng.Next(100) < 35;
+
+        OrbitingBody p1 = planets[rng.Next(planets.Count)];
+        OrbitingBody p2 = planets[rng.Next(planets.Count)];
+
+        if (starRoute)
+        {
+            ship.Origin = GetStar;
+            ship.Destination = GetPlanet(p1);
+        }
+        else
+        {
+            ship.Origin = GetPlanet(p1);
+            ship.Destination = GetPlanet(p2);
+        }
+
+        ship.Progress = 0f;
+        ship.Speed = 0.002f + (float)rng.NextDouble() * 0.0035f;
+
+        ship.Position = ship.Origin();
+        ship.Trail.Clear();
     }
 
     // ------------------------------------------------------
@@ -79,39 +163,36 @@ public class StarSystemSimulation
         planets.Clear();
 
         int maxOrbit = (Math.Min(width, height) / 2) - safeMargin;
-
         int orbit = Math.Max(starRadius + 18, 34);
+
         int planetCount = rng.Next(4, 11);
 
         for (int i = 0; i < planetCount; i++)
         {
             var planet = CreatePlanet();
-
-            // Generate moons BEFORE calculating spacing
             GenerateMoons(planet);
 
-            // ---- Dynamic spacing calculation ----
-            int requiredSpacing =
-                10 +                         // baseline spacing
+            int spacing =
+                10 +
                 planet.Radius +
                 planet.MoonSystemMaxOrbit +
                 (planet.HasRings ? 4 : 0);
 
-            orbit += requiredSpacing;
+            orbit += spacing;
 
             if (orbit >= maxOrbit - 4)
                 break;
 
             planet.OrbitRadius = orbit;
 
-            double angularVel =
+            double vel =
                 (0.07 + rng.NextDouble() * 0.05) /
                 Math.Sqrt(Math.Max(orbit, 1));
 
             if (rng.Next(2) == 0)
-                angularVel = -angularVel;
+                vel = -vel;
 
-            planet.AngularVelocity = angularVel;
+            planet.AngularVelocity = vel;
             planet.Angle = rng.NextDouble() * Math.PI * 2;
 
             planets.Add(planet);
@@ -169,10 +250,6 @@ public class StarSystemSimulation
         };
     }
 
-    // ------------------------------------------------------
-    // MOON GENERATION WITH SYSTEM SIZE TRACKING
-    // ------------------------------------------------------
-
     private void GenerateMoons(OrbitingBody planet)
     {
         int moonCount = rng.Next(100) switch
@@ -207,34 +284,10 @@ public class StarSystemSimulation
             };
 
             maxMoonOrbit = Math.Max(maxMoonOrbit, orbit + radius + 2);
-
             planet.Moons.Add(moon);
         }
 
         planet.MoonSystemMaxOrbit = maxMoonOrbit;
-    }
-
-    // ------------------------------------------------------
-
-    private (Color color, int radius) GetStarVisuals(StarType type)
-    {
-        return type switch
-        {
-            StarType.RedDwarf => (Color.FromArgb(255, 110, 70), rng.Next(10, 15)),
-            StarType.YellowDwarf => (Color.FromArgb(255, 210, 80), rng.Next(13, 18)),
-            StarType.BlueGiant => (Color.FromArgb(150, 200, 255), rng.Next(16, 22)),
-            StarType.WhiteDwarf => (Color.FromArgb(255, 245, 235), rng.Next(9, 12)),
-            _ => (Color.FromArgb(255, 170, 80), rng.Next(12, 18)),
-        };
-    }
-
-    private Color WarmMuted(int r, int g, int b)
-    {
-        return Color.FromArgb(
-            Math.Clamp(r + rng.Next(-30, 31), 30, 240),
-            Math.Clamp(g + rng.Next(-30, 31), 30, 240),
-            Math.Clamp(b + rng.Next(-30, 31), 30, 240)
-        );
     }
 
     // ------------------------------------------------------
@@ -248,6 +301,8 @@ public class StarSystemSimulation
             foreach (var m in p.Moons)
                 m.Angle += m.AngularVelocity;
         }
+
+        UpdateShips();
 
         Bitmap bmp = new(width, height);
 
@@ -270,11 +325,74 @@ public class StarSystemSimulation
                 DrawPlanet(g, p, px, py);
                 DrawMoons(g, p, px, py);
             }
+
+            DrawShips(g);
         }
 
         return bmp;
     }
 
+    // ------------------------------------------------------
+    // SHIP UPDATE + DRAW
+    // ------------------------------------------------------
+
+    private void UpdateShips()
+    {
+        foreach (var s in ships)
+        {
+            s.Progress += s.Speed;
+
+            if (s.Progress >= 1f)
+            {
+                AssignNewRoute(s);
+                continue;
+            }
+
+            PointF a = s.Origin();
+            PointF b = s.Destination();
+
+            float t = SmoothStep(s.Progress);
+
+            s.Position = new PointF(
+                Lerp(a.X, b.X, t),
+                Lerp(a.Y, b.Y, t)
+            );
+
+            s.Trail.Enqueue(s.Position);
+            while (s.Trail.Count > s.TrailMax)
+                s.Trail.Dequeue();
+        }
+    }
+
+    private void DrawShips(Graphics g)
+    {
+        foreach (var s in ships)
+        {
+            // trail
+            int i = 0;
+            foreach (var p in s.Trail)
+            {
+                float alpha = (float)i / s.TrailMax;
+                using SolidBrush br =
+                    new(Color.FromArgb((int)(alpha * 140), 200, 230, 255));
+
+                g.FillEllipse(br, p.X - 1.2f, p.Y - 1.2f, 2.4f, 2.4f);
+                i++;
+            }
+
+            using SolidBrush ship = new(Color.White);
+            g.FillEllipse(ship, s.Position.X - 1.5f, s.Position.Y - 1.5f, 3, 3);
+        }
+    }
+
+    // ------------------------------------------------------
+
+    private float Lerp(float a, float b, float t) => a + (b - a) * t;
+
+    private float SmoothStep(float t) => t * t * (3f - 2f * t);
+
+    // ------------------------------------------------------
+    // DRAWING
     // ------------------------------------------------------
 
     private void DrawPlanetOrbits(Graphics g, float cx, float cy)
@@ -284,17 +402,12 @@ public class StarSystemSimulation
         foreach (var p in planets)
         {
             float d = p.OrbitRadius * 2f;
-
-            g.DrawEllipse(pen,
-                cx - p.OrbitRadius,
-                cy - p.OrbitRadius,
-                d, d);
+            g.DrawEllipse(pen, cx - p.OrbitRadius, cy - p.OrbitRadius, d, d);
         }
     }
 
     private void DrawMoons(Graphics g, OrbitingBody planet, float px, float py)
     {
-        // Brighter moon orbit lines
         using Pen orbitPen = new(Color.FromArgb(190, 240, 240, 240), 1f);
 
         foreach (var m in planet.Moons)
@@ -376,6 +489,27 @@ public class StarSystemSimulation
         float ry2 = radius / 2f + 2;
 
         g.DrawEllipse(pen, px - rx2, py - ry2, rx2 * 2, ry2 * 2);
+    }
+
+    private (Color color, int radius) GetStarVisuals(StarType type)
+    {
+        return type switch
+        {
+            StarType.RedDwarf => (Color.FromArgb(255, 110, 70), rng.Next(10, 15)),
+            StarType.YellowDwarf => (Color.FromArgb(255, 210, 80), rng.Next(13, 18)),
+            StarType.BlueGiant => (Color.FromArgb(150, 200, 255), rng.Next(16, 22)),
+            StarType.WhiteDwarf => (Color.FromArgb(255, 245, 235), rng.Next(9, 12)),
+            _ => (Color.FromArgb(255, 170, 80), rng.Next(12, 18)),
+        };
+    }
+
+    private Color WarmMuted(int r, int g, int b)
+    {
+        return Color.FromArgb(
+            Math.Clamp(r + rng.Next(-30, 31), 30, 240),
+            Math.Clamp(g + rng.Next(-30, 31), 30, 240),
+            Math.Clamp(b + rng.Next(-30, 31), 30, 240)
+        );
     }
 
     private Color Lighten(Color c, float amount)
