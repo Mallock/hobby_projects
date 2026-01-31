@@ -294,14 +294,37 @@ namespace SyncMagic
         /// </summary>  
         private void EvaporatePheromones()
         {
-            double evaporationRate = 0.01;
+            // Evaporate and gently diffuse pheromones to form smoother trails
+            double evaporationRate = 0.02;
+            double diffusionRate = 0.15; // how much blends with neighbors
+
+            double[,] next = new double[gridWidth, gridHeight];
+
             for (int x = 0; x < gridWidth; x++)
             {
                 for (int y = 0; y < gridHeight; y++)
                 {
-                    pheromones[x, y] *= (1 - evaporationRate);
+                    double value = pheromones[x, y] * (1 - evaporationRate);
+
+                    // Compute neighbor average (von Neumann neighborhood)
+                    double sum = 0;
+                    int count = 0;
+                    if (y > 0) { sum += pheromones[x, y - 1]; count++; }
+                    if (x < gridWidth - 1) { sum += pheromones[x + 1, y]; count++; }
+                    if (y < gridHeight - 1) { sum += pheromones[x, y + 1]; count++; }
+                    if (x > 0) { sum += pheromones[x - 1, y]; count++; }
+
+                    double neighborAvg = count > 0 ? sum / count : 0;
+
+                    // Blend with neighbors to simulate diffusion
+                    next[x, y] = value * (1 - diffusionRate) + neighborAvg * diffusionRate;
+
+                    // Clamp to non-negative
+                    if (next[x, y] < 0) next[x, y] = 0;
                 }
             }
+
+            pheromones = next;
         }
 
         /// <summary>  
@@ -326,23 +349,8 @@ namespace SyncMagic
                     {
                         if (tunnels[x, y] > 0)
                         {
-                            // Brighten color if there are pheromones  
-                            double pheromoneLevel = pheromones[x, y];
-                            double brightnessFactor = 1 + pheromoneLevel;
-                            brightnessFactor = Math.Min(brightnessFactor, 2); // Max brightness  
-
-                            Color baseColor = Color.BurlyWood;
-                            int r = (int)(baseColor.R * brightnessFactor);
-                            int gColor = (int)(baseColor.G * brightnessFactor);
-                            int b = (int)(baseColor.B * brightnessFactor);
-
-                            r = Math.Min(255, r);
-                            gColor = Math.Min(255, gColor);
-                            b = Math.Min(255, b);
-
-                            Color tunnelColor = Color.FromArgb(r, gColor, b);
-                            Brush tunnelBrush = new SolidBrush(tunnelColor);
-                            g.FillRectangle(tunnelBrush, x * CellSize, y * CellSize, CellSize, CellSize);
+                            // Render tunnels as black cells
+                            g.FillRectangle(Brushes.Black, x * CellSize, y * CellSize, CellSize, CellSize);
                         }
                     }
                 }

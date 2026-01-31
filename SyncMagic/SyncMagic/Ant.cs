@@ -44,6 +44,7 @@ namespace SyncMagic
         private int ForagerSearchRadius = 20; // Will adjust based on food availability  
         private const int NurseSearchRadius = 15;
         private const int MaxIdleSteps = 10; // Max steps to stay idle before exploring    
+        private const double PheromoneWeight = 0.75; // Weight for pheromone bias when selecting moves
 
         // Constructor    
         public Ant(Point startPosition, AntRole role, Random random, AntFarm antFarm)
@@ -289,11 +290,12 @@ namespace SyncMagic
                     {
                         if (Goal.HasValue)
                         {
-                            newPosition = MoveTowards(Position, Goal.Value, acceptableMoves);
+                            newPosition = SelectMoveWithPheromoneBias(acceptableMoves, Goal.Value, followTrail: false);
                         }
                         else
                         {
-                            newPosition = acceptableMoves[random.Next(acceptableMoves.Count)];
+                            // Explore into low-pheromone areas to expand tunnels
+                            newPosition = SelectMoveWithPheromoneBias(acceptableMoves, Position, followTrail: false);
                         }
 
                         // Dig tunnel    
@@ -318,7 +320,8 @@ namespace SyncMagic
                         List<Point> tunnelMoves = GetAvailableTunnelMoves(possibleMoves, antFarm.Tunnels);
                         if (tunnelMoves.Count > 0)
                         {
-                            newPosition = MoveTowards(Position, Goal.Value, tunnelMoves);
+                            // Follow pheromone-rich trails back home while also moving closer
+                            newPosition = SelectMoveWithPheromoneBias(tunnelMoves, Goal.Value, followTrail: true);
                         }
                         else
                         {
@@ -346,7 +349,8 @@ namespace SyncMagic
                                 List<Point> tunnelMoves = GetAvailableTunnelMoves(possibleMoves, antFarm.Tunnels);
                                 if (tunnelMoves.Count > 0)
                                 {
-                                    newPosition = MoveTowards(Position, Goal.Value, tunnelMoves);
+                                    // Prefer lower-pheromone tunnel moves to discover new paths to food
+                                    newPosition = SelectMoveWithPheromoneBias(tunnelMoves, Goal.Value, followTrail: false);
                                 }
                                 else
                                 {
@@ -354,7 +358,7 @@ namespace SyncMagic
                                     List<Point> acceptableMoves = possibleMoves;
                                     if (acceptableMoves.Count > 0)
                                     {
-                                        newPosition = MoveTowards(Position, Goal.Value, acceptableMoves);
+                                        newPosition = SelectMoveWithPheromoneBias(acceptableMoves, Goal.Value, followTrail: false);
                                         // Dig tunnel  
                                         if (antFarm.Tunnels[newPosition.X, newPosition.Y] == 0)
                                         {
@@ -399,7 +403,8 @@ namespace SyncMagic
                             List<Point> acceptableMoves = possibleMoves;
                             if (acceptableMoves.Count > 0)
                             {
-                                newPosition = acceptableMoves[random.Next(acceptableMoves.Count)];
+                                // Explore areas with lower pheromone to expand the map
+                                newPosition = SelectMoveWithPheromoneBias(acceptableMoves, Position, followTrail: false);
                                 // Dig tunnel  
                                 if (antFarm.Tunnels[newPosition.X, newPosition.Y] == 0)
                                 {
@@ -412,7 +417,8 @@ namespace SyncMagic
                                 List<Point> tunnelMoves = GetAvailableTunnelMoves(possibleMoves, antFarm.Tunnels);
                                 if (tunnelMoves.Count > 0)
                                 {
-                                    newPosition = tunnelMoves[random.Next(tunnelMoves.Count)];
+                                    // Bias along pheromone to maintain highways
+                                    newPosition = SelectMoveWithPheromoneBias(tunnelMoves, Position, followTrail: true);
                                 }
                                 else
                                 {
@@ -445,14 +451,61 @@ namespace SyncMagic
                 Position = newPosition;
                 stepsSinceGoal = 0;
 
-                // Leave pheromones    
-                antFarm.Pheromones[Position.X, Position.Y] += 1.0;
+                // Leave pheromones with role/state-based intensity
+                double deposit = 0.2; // default trace
+                if (Role == AntRole.Forager)
+                {
+                    deposit = carryingItem ? 2.0 : 0.4; // strong trail on food return
+                }
+                else if (Role == AntRole.Worker)
+                {
+                    deposit = 0.3;
+                }
+                else if (Role == AntRole.Nurse)
+                {
+                    deposit = 0.1;
+                }
+                antFarm.Pheromones[Position.X, Position.Y] += deposit;
             }
             else
             {
                 // No valid moves, ant picks a new goal or tries to backtrack    
                 DecideGoal();
             }
+        }
+
+        // Prefer moves based on pheromone and distance to a target.
+        // When followTrail is true, pick higher-pheromone cells that also reduce distance to target if possible.
+        // When false, prefer lower-pheromone cells (exploration) while still moving closer to target when applicable.
+        private Point SelectMoveWithPheromoneBias(List<Point> candidates, Point target, bool followTrail)
+        {
+            double bestScore = double.NegativeInfinity;
+            List<Point> best = new List<Point>();
+
+            foreach (var move in candidates)
+            {
+                int d = Math.Abs(move.X - target.X) + Math.Abs(move.Y - target.Y);
+                // Distance improvement (negative distance so lower is better)
+                double distScore = -d;
+                double ph = antFarm.Pheromones[move.X, move.Y];
+                // Normalize/bound pheromone contribution
+                double phScore = Math.Tanh(ph); // squashes large values
+
+                double score = distScore + (followTrail ? +PheromoneWeight * phScore : -PheromoneWeight * phScore);
+
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    best.Clear();
+                    best.Add(move);
+                }
+                else if (Math.Abs(score - bestScore) < 1e-6)
+                {
+                    best.Add(move);
+                }
+            }
+
+            return best[random.Next(best.Count)];
         }
 
         // Helper method to get possible moves    

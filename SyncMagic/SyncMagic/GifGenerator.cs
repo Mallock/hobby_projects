@@ -27,17 +27,17 @@ namespace SyncMagic
         private const double AdjustMax = 2.25;
 
         // Frame capture settings
-        private const int MinFrames = 8;
-        private const int MaxFrames = 900;  // Reduced for 1MB target
+        private const int MinFrames = 2;
+        private const int MaxFrames = 4;  // Reduced for 1MB target
         private const int BaseCaptureIntervalMs = 250;
-        private const int DeviceLoopMs = 60000;
+        private const int DeviceLoopMs = 2000;
         private const int SafetyMs = 200;
 
         // GIF optimization for 1MB target
         private const int TargetGifSizeBytes = 1024 * 1024;  // 1MB
         private const int MinGifSizeBytes = 800 * 1024;      // 800KB minimum for quality
-        private const int PauseStartMs = 2000;               // 2 second pause at start
-        private const int PauseEndMs = 2000;                 // 2 second pause at end
+        private const int PauseStartMs = 100;               // 2 second pause at start
+        private const int PauseEndMs = 100;                 // 2 second pause at end
         private const bool UseEvenFrameDistribution = false; // true = uniform delays, false = smooth cosine easing
 
         public GifGenerator(ImageUploader uploader, Func<Bitmap> frameProvider, Action<Image> pictureBoxUpdater, System.Windows.Forms.TextBox ipTextBox)
