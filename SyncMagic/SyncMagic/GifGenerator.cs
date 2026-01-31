@@ -27,11 +27,17 @@ namespace SyncMagic
         private const double AdjustMax = 2.25;
 
         // Frame capture settings
-        private const int MinFrames = 10;
-        private const int MaxFrames = 120;
+        private const int MinFrames = 8;
+        private const int MaxFrames = 60;  // Reduced for 1MB target
         private const int BaseCaptureIntervalMs = 250;
         private const int DeviceLoopMs = 30000;
         private const int SafetyMs = 200;
+
+        // GIF optimization for 1MB target
+        private const int TargetGifSizeBytes = 1024 * 1024;  // 1MB
+        private const int MinGifSizeBytes = 800 * 1024;      // 800KB minimum for quality
+        private const int PauseStartMs = 2000;               // 2 second pause at start
+        private const int PauseEndMs = 2000;                 // 2 second pause at end
 
         public GifGenerator(ImageUploader uploader, Func<Bitmap> frameProvider, Action<Image> pictureBoxUpdater, System.Windows.Forms.TextBox ipTextBox)
         {
@@ -113,29 +119,20 @@ namespace SyncMagic
                     previousLastFrame?.Dispose();
                     previousLastFrame = (Bitmap)gifFrames[^1].Clone();
 
-                    // Build frame delays
+                    // Build frame delays with pause effect
                     int estPauseMs = (int)Math.Ceiling(emaUploadMs + emaEncodeMs);
                     estPauseMs = Math.Clamp(estPauseMs, 1000, 6000);
 
-                    int holdStartMs = estPauseMs / 2;
-                    int holdEndMs = estPauseMs - holdStartMs;
-
-                    var perFrameDelays = BuildStableEasedDelays(
+                    var perFrameDelays = BuildPauseEasedDelays(
                         DeviceLoopMs,
                         gifFrames.Count,
-                        holdStartMs,
-                        holdEndMs
+                        PauseStartMs,
+                        PauseEndMs
                     );
 
-                    // Encode GIF
+                    // Encode GIF with quality optimization for 1MB target
                     var encodeSw = Stopwatch.StartNew();
-                    using (var gif = AnimatedGif.AnimatedGif.Create("screen.gif", 10))
-                    {
-                        for (int i = 0; i < gifFrames.Count; i++)
-                        {
-                            gif.AddFrame(gifFrames[i], perFrameDelays[i], GifQuality.Bit8);
-                        }
-                    }
+                    double sizeRatio = EncodeOptimizedGif(gifFrames, perFrameDelays, "screen.gif");
                     encodeSw.Stop();
 
                     // Upload GIF
@@ -172,11 +169,26 @@ namespace SyncMagic
                         EmaAlpha * encodeDuration.TotalMilliseconds +
                         (1 - EmaAlpha) * emaEncodeMs;
 
-                    // Adapt frame scale
-                    double s = TargetPauseMs / Math.Max(1, totalPause.TotalMilliseconds);
-                    s = Math.Clamp(s, AdjustMin, AdjustMax);
+                    // Adapt frame scale based on timing and file size
+                    double timingScale = TargetPauseMs / Math.Max(1, totalPause.TotalMilliseconds);
+                    timingScale = Math.Clamp(timingScale, AdjustMin, AdjustMax);
 
-                    frameScale = Math.Clamp(frameScale * s, 0.1, 3.0);
+                    // Adjust based on file size headroom
+                    // If size ratio < 0.78 (383KB vs 1MB = 0.38), we have room to add more frames
+                    double sizeScale = 1.0;
+                    if (sizeRatio < 0.78)  // Below 78% of target (less than 800KB sweet spot)
+                    {
+                        // Calculate how much headroom we have and add frames proportionally
+                        double headroomFactor = (0.78 - sizeRatio) / 0.78;  // How much room available
+                        sizeScale = 1.0 + (headroomFactor * 0.5);  // Add up to 50% more frames based on headroom
+                    }
+                    else if (sizeRatio > 1.0)  // Over 1MB limit
+                    {
+                        // Reduce frames to get back under limit
+                        sizeScale = 0.95;  // Conservative reduction
+                    }
+
+                    frameScale = Math.Clamp(frameScale * timingScale * sizeScale, 0.1, 3.0);
                 }
             }
             catch (OperationCanceledException)
@@ -253,6 +265,114 @@ namespace SyncMagic
                 case 270:
                     bmp.RotateFlip(RotateFlipType.Rotate270FlipNone);
                     break;
+            }
+        }
+
+        /// <summary>
+        /// Builds frame delays with 2-second pause at start and end for slow-still effect during upload.
+        /// Middle frames animate smoothly while pause frames move very slowly.
+        /// </summary>
+        private List<int> BuildPauseEasedDelays(
+            int totalMs,
+            int frameCount,
+            int pauseStartMs,
+            int pauseEndMs)
+        {
+            var delays = new List<int>(frameCount);
+
+            if (frameCount <= 2)
+            {
+                delays.Add(totalMs / 2);
+                if (frameCount == 2)
+                    delays.Add(totalMs / 2);
+                return delays;
+            }
+
+            // Allocate budget: pauseStart + middle smooth frames + pauseEnd
+            int middleFrames = frameCount - 2;
+            int middleBudget = totalMs - pauseStartMs - pauseEndMs;
+            middleBudget = Math.Max(middleFrames * 10, middleBudget);
+
+            // Pause start: slow movement (hold longer)
+            delays.Add(pauseStartMs);
+
+            // Middle frames: smooth cosine easing
+            double[] weights = new double[middleFrames];
+            double weightSum = 0;
+
+            for (int i = 0; i < middleFrames; i++)
+            {
+                double t = (double)i / Math.Max(1, middleFrames - 1);
+                double w = 0.5 - 0.5 * Math.Cos(Math.PI * t);
+                weights[i] = w;
+                weightSum += w;
+            }
+
+            for (int i = 0; i < middleFrames; i++)
+            {
+                int d = (int)Math.Round((weights[i] / weightSum) * middleBudget);
+                d = Math.Max(10, d);
+                delays.Add(d);
+            }
+
+            // Pause end: slow movement (hold longer)
+            delays.Add(pauseEndMs);
+
+            // Adjust for rounding
+            int sum = delays.Sum();
+            int diff = totalMs - sum;
+            if (delays.Count > 0)
+                delays[^1] += diff;
+
+            return delays;
+        }
+
+        /// <summary>
+        /// Encodes a GIF with optimization for 1MB target size.
+        /// Returns size ratio to allow dynamic frame adjustment based on headroom.
+        /// </summary>
+        private double EncodeOptimizedGif(List<Bitmap> frames, List<int> frameDelays, string outputPath)
+        {
+            // Use Bit8 quality for optimal compression while maintaining smoothness
+            var gifQuality = GifQuality.Bit8;
+
+            try
+            {
+                using (var gif = AnimatedGif.AnimatedGif.Create(outputPath, 10))
+                {
+                    for (int i = 0; i < frames.Count; i++)
+                    {
+                        gif.AddFrame(frames[i], frameDelays[i], gifQuality);
+                    }
+                }
+
+                // Check file size and calculate ratio
+                long fileSize = new FileInfo(outputPath).Length;
+                double sizeRatio = (double)fileSize / TargetGifSizeBytes;
+                
+                // Determine adjustment based on headroom
+                string sizeStatus;
+                if (fileSize > TargetGifSizeBytes)
+                {
+                    sizeStatus = $"TOO_LARGE ({fileSize / 1024}KB exceeds 1MB)";
+                }
+                else if (fileSize < MinGifSizeBytes)
+                {
+                    sizeStatus = $"HEADROOM ({fileSize / 1024}KB < 800KB min - can add frames)";
+                }
+                else
+                {
+                    sizeStatus = $"OPTIMAL ({fileSize / 1024}KB in 800KB-1MB range)";
+                }
+
+                Debug.WriteLine($"GIF encoded: {sizeStatus} | {frames.Count} frames | ratio={sizeRatio:F2}");
+
+                return sizeRatio;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error encoding optimized GIF: {ex.Message}");
+                throw;
             }
         }
 
