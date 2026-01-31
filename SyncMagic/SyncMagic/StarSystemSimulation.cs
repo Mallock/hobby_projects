@@ -190,7 +190,10 @@ public class StarSystemSimulation
         {
             orbit += rng.Next(4, 7);
 
-            int radius = rng.Next(1, Math.Max(2, planet.Radius / 2));
+            int radius = rng.Next(
+                Math.Max(2, planet.Radius / 3),
+                Math.Max(3, (int)(planet.Radius * 0.75))
+            );
 
             var moon = new Moon
             {
