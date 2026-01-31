@@ -60,9 +60,9 @@ namespace SyncMagic
             public float MaxSpeedXLimit { get; private set; }
             public float MaxSpeedYLimit { get; private set; }
 
-            private static readonly (float minX, float maxX, float minY, float maxY, float limitX, float limitY) SlowSpeed = (-0.1f, 0.1f, -0.05f, 0.05f, 0.2f, 0.1f);
-            private static readonly (float minX, float maxX, float minY, float maxY, float limitX, float limitY) MediumSpeed = (-0.3f, 0.3f, -0.1f, 0.1f, 0.6f, 0.2f);
-            private static readonly (float minX, float maxX, float minY, float maxY, float limitX, float limitY) FastSpeed = (-0.5f, 0.5f, -0.3f, 0.3f, 1.0f, 0.5f);
+            private static readonly (float minX, float maxX, float minY, float maxY, float limitX, float limitY) SlowSpeed = (-0.15f, 0.15f, -0.08f, 0.08f, 0.3f, 0.15f);
+            private static readonly (float minX, float maxX, float minY, float maxY, float limitX, float limitY) MediumSpeed = (-0.4f, 0.4f, -0.15f, 0.15f, 0.8f, 0.3f);
+            private static readonly (float minX, float maxX, float minY, float maxY, float limitX, float limitY) FastSpeed = (-0.65f, 0.65f, -0.4f, 0.4f, 1.3f, 0.65f);
 
             public FishType(Bitmap image, FishSpeedCategory speedCategory)
             {

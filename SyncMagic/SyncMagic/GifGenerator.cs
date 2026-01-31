@@ -28,9 +28,9 @@ namespace SyncMagic
 
         // Frame capture settings
         private const int MinFrames = 8;
-        private const int MaxFrames = 60;  // Reduced for 1MB target
+        private const int MaxFrames = 140;  // Reduced for 1MB target
         private const int BaseCaptureIntervalMs = 250;
-        private const int DeviceLoopMs = 30000;
+        private const int DeviceLoopMs = 60000;
         private const int SafetyMs = 200;
 
         // GIF optimization for 1MB target
@@ -130,6 +130,17 @@ namespace SyncMagic
                         PauseEndMs
                     );
 
+                    // Validate frame/delay count match
+                    if (perFrameDelays.Count != gifFrames.Count)
+                    {
+                        Debug.WriteLine($"WARNING: Frame count mismatch! Frames={gifFrames.Count}, Delays={perFrameDelays.Count}");
+                        // Adjust delays to match frames
+                        while (perFrameDelays.Count < gifFrames.Count)
+                            perFrameDelays.Add(100);
+                        while (perFrameDelays.Count > gifFrames.Count)
+                            perFrameDelays.RemoveAt(perFrameDelays.Count - 1);
+                    }
+
                     // Encode GIF with quality optimization for 1MB target
                     var encodeSw = Stopwatch.StartNew();
                     double sizeRatio = EncodeOptimizedGif(gifFrames, perFrameDelays, "screen.gif");
@@ -179,13 +190,14 @@ namespace SyncMagic
                     if (sizeRatio < 0.78)  // Below 78% of target (less than 800KB sweet spot)
                     {
                         // Calculate how much headroom we have and add frames proportionally
+                        // At sizeRatio=0.39, headroomFactor ≈ 0.50, so we can add up to 75% more frames
                         double headroomFactor = (0.78 - sizeRatio) / 0.78;  // How much room available
-                        sizeScale = 1.0 + (headroomFactor * 0.5);  // Add up to 50% more frames based on headroom
+                        sizeScale = 1.0 + (headroomFactor * 0.75);  // Add up to 75% more frames based on headroom (more aggressive)
                     }
                     else if (sizeRatio > 1.0)  // Over 1MB limit
                     {
                         // Reduce frames to get back under limit
-                        sizeScale = 0.95;  // Conservative reduction
+                        sizeScale = 0.90;  // More aggressive reduction
                     }
 
                     frameScale = Math.Clamp(frameScale * timingScale * sizeScale, 0.1, 3.0);
@@ -342,12 +354,31 @@ namespace SyncMagic
                 {
                     for (int i = 0; i < frames.Count; i++)
                     {
-                        gif.AddFrame(frames[i], frameDelays[i], gifQuality);
+                        if (frameDelays.Count > i)
+                            gif.AddFrame(frames[i], frameDelays[i], gifQuality);
+                        else
+                            gif.AddFrame(frames[i], 100, gifQuality);
                     }
                 }
 
+                // Ensure file is fully written before proceeding
+                System.Threading.Thread.Sleep(100);
+
                 // Check file size and calculate ratio
+                if (!File.Exists(outputPath))
+                {
+                    Debug.WriteLine($"ERROR: GIF file '{outputPath}' was not created!");
+                    throw new FileNotFoundException($"GIF file not created: {outputPath}");
+                }
+
                 long fileSize = new FileInfo(outputPath).Length;
+                
+                if (fileSize == 0)
+                {
+                    Debug.WriteLine($"ERROR: GIF file '{outputPath}' is empty!");
+                    throw new InvalidOperationException($"GIF file is empty: {outputPath}");
+                }
+
                 double sizeRatio = (double)fileSize / TargetGifSizeBytes;
                 
                 // Determine adjustment based on headroom
@@ -371,7 +402,7 @@ namespace SyncMagic
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error encoding optimized GIF: {ex.Message}");
+                Debug.WriteLine($"Error encoding optimized GIF: {ex.Message}\n{ex.StackTrace}");
                 throw;
             }
         }
