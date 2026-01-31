@@ -27,6 +27,7 @@ namespace SyncMagic
         private ArkanoidGame arkanoidGame;
         private FishTankSimulation fishTankSimulation;
         private SimpleFishTankSimulation simpleFishTankSimulation;
+        private StarSystemSimulation starSystemSimulation;
 
         // Image uploader  
         private ImageUploader imageUploader = new ImageUploader();
@@ -43,6 +44,7 @@ namespace SyncMagic
         private bool arkanoidGameActive = false;
         private bool fishTankActive = false;
         private bool simpleFishTankActive = false;
+        private bool starSystemActive = false;
 
         // Delegate to get frames from the active simulation  
         private Func<Bitmap> getFrame;
@@ -72,6 +74,7 @@ namespace SyncMagic
             officeSimulation = new OfficeSimulation();
             newsFeedScroller = new NewsFeedScroller();
             arkanoidGame = new ArkanoidGame();
+            starSystemSimulation = new StarSystemSimulation();
 
             // Configure list of cities for weather  
             List<string> cities = new List<string>
@@ -321,6 +324,23 @@ namespace SyncMagic
             }
         }
 
+        private void btnStarSystem_Click(object sender, EventArgs e)
+        {
+            // Toggle star system simulation
+            starSystemActive = !starSystemActive;
+
+            if (starSystemActive)
+            {
+                // Recreate with a new seed for variety each time
+                starSystemSimulation = new StarSystemSimulation(seed: Environment.TickCount);
+                DeactivateAllSimulationsExcept("starSystem");
+            }
+            else
+            {
+                DeactivateAllSimulationsExcept("");
+            }
+        }
+
         private void btnOffice_Click(object sender, EventArgs e)
         {
             // Toggle officeActive  
@@ -420,6 +440,7 @@ namespace SyncMagic
             arkanoidGameActive = false;
             fishTankActive = false;
             simpleFishTankActive = false;
+            starSystemActive = false;
 
             // Stop any existing GIF recording  
             if (gifGenerator != null)
@@ -462,6 +483,10 @@ namespace SyncMagic
                 case "planetSimulation":
                     planetSimulationActive = true;
                     getFrame = planetSimulation.GetPlanetPositions;
+                    break;
+                case "starSystem":
+                    starSystemActive = true;
+                    getFrame = starSystemSimulation.GetFrame;
                     break;
                 case "office":
                     officeActive = true;

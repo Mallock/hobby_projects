@@ -51,6 +51,7 @@
             button1 = new Button();
             btnSeamlessMode = new Button();
             lblOpsStatus = new Label();
+            btnStarSystem = new Button();
             groupBox1.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)picScreen).BeginInit();
             SuspendLayout();
@@ -256,11 +257,22 @@
             lblOpsStatus.TabIndex = 16;
             lblOpsStatus.Text = "";
             // 
+            // btnStarSystem
+            // 
+            btnStarSystem.Location = new Point(12, 420);
+            btnStarSystem.Name = "btnStarSystem";
+            btnStarSystem.Size = new Size(100, 23);
+            btnStarSystem.TabIndex = 17;
+            btnStarSystem.Text = "Star System";
+            btnStarSystem.UseVisualStyleBackColor = true;
+            btnStarSystem.Click += btnStarSystem_Click;
+            // 
             // Form1
             // 
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(800, 450);
+            Controls.Add(btnStarSystem);
             Controls.Add(lblOpsStatus);
             Controls.Add(btnSeamlessMode);
             Controls.Add(button1);
@@ -313,5 +325,6 @@
         private Button button1;
         private Button btnSeamlessMode;
         private Label lblOpsStatus;
+        private Button btnStarSystem;
     }
 }

@@ -28,16 +28,17 @@ namespace SyncMagic
 
         // Frame capture settings
         private const int MinFrames = 8;
-        private const int MaxFrames = 140;  // Reduced for 1MB target
+        private const int MaxFrames = 120;  // Reduced for 1MB target
         private const int BaseCaptureIntervalMs = 250;
-        private const int DeviceLoopMs = 60000;
+        private const int DeviceLoopMs = 30000;
         private const int SafetyMs = 200;
 
         // GIF optimization for 1MB target
         private const int TargetGifSizeBytes = 1024 * 1024;  // 1MB
         private const int MinGifSizeBytes = 800 * 1024;      // 800KB minimum for quality
-        private const int PauseStartMs = 2000;               // 2 second pause at start
+        private const int PauseStartMs = 1000;               // 2 second pause at start
         private const int PauseEndMs = 2000;                 // 2 second pause at end
+        private const bool UseEvenFrameDistribution = false; // true = uniform delays, false = smooth cosine easing
 
         public GifGenerator(ImageUploader uploader, Func<Bitmap> frameProvider, Action<Image> pictureBoxUpdater, System.Windows.Forms.TextBox ipTextBox)
         {
@@ -123,12 +124,14 @@ namespace SyncMagic
                     int estPauseMs = (int)Math.Ceiling(emaUploadMs + emaEncodeMs);
                     estPauseMs = Math.Clamp(estPauseMs, 1000, 6000);
 
-                    var perFrameDelays = BuildPauseEasedDelays(
-                        DeviceLoopMs,
-                        gifFrames.Count,
-                        PauseStartMs,
-                        PauseEndMs
-                    );
+                    var perFrameDelays = UseEvenFrameDistribution
+                        ? BuildEvenDelays(DeviceLoopMs, gifFrames.Count)
+                        : BuildPauseEasedDelays(
+                            DeviceLoopMs,
+                            gifFrames.Count,
+                            PauseStartMs,
+                            PauseEndMs
+                        );
 
                     // Validate frame/delay count match
                     if (perFrameDelays.Count != gifFrames.Count)
@@ -278,6 +281,29 @@ namespace SyncMagic
                     bmp.RotateFlip(RotateFlipType.Rotate270FlipNone);
                     break;
             }
+        }
+
+        /// <summary>
+        /// Builds frame delays with even distribution for testing.
+        /// All frames get equal delay time.
+        /// </summary>
+        private List<int> BuildEvenDelays(int totalMs, int frameCount)
+        {
+            var delays = new List<int>(frameCount);
+            
+            if (frameCount <= 0)
+                return delays;
+
+            int baseDelay = totalMs / frameCount;
+            int remainder = totalMs % frameCount;
+
+            for (int i = 0; i < frameCount; i++)
+            {
+                int delay = baseDelay + (i < remainder ? 1 : 0);
+                delays.Add(Math.Max(10, delay));
+            }
+
+            return delays;
         }
 
         /// <summary>
