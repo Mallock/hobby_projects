@@ -47,11 +47,9 @@ namespace SyncMagic
         // Delegate to get frames from the active simulation  
         private Func<Bitmap> getFrame;
 
-        // GIF recording cancellation token source  
-        private CancellationTokenSource gifCancellationTokenSource;
+        // GIF generator instance
+        private GifGenerator gifGenerator;
 
-        // MemoryStream to hold GIF image for PictureBox  
-        private MemoryStream pictureBoxMemoryStream;
         // File to persist last used IP address
         private readonly string ipFilePath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -198,9 +196,10 @@ namespace SyncMagic
                 }
 
                 // Toggle stop if running
-                if (gifCancellationTokenSource != null)
+                if (gifGenerator != null)
                 {
-                    StopGifRecording();
+                    gifGenerator.StopRecording();
+                    gifGenerator = null;
                     // Stop all simulations to ensure a clean state
                     DeactivateAllSimulationsExcept("");
                     btnSeamlessMode.Text = "Start Seamless Tank";
@@ -423,7 +422,11 @@ namespace SyncMagic
             simpleFishTankActive = false;
 
             // Stop any existing GIF recording  
-            StopGifRecording();
+            if (gifGenerator != null)
+            {
+                gifGenerator.StopRecording();
+                gifGenerator = null;
+            }
 
             // Dispose of existing image  
             if (picScreen.Image != null)
@@ -432,10 +435,6 @@ namespace SyncMagic
                 picScreen.Image.Dispose();
                 picScreen.Image = null;
             }
-
-            // Dispose previous MemoryStream  
-            pictureBoxMemoryStream?.Dispose();
-            pictureBoxMemoryStream = null;
 
             // Activate only the specified simulation and set getFrame delegate  
             switch (activeSimulation)
@@ -498,201 +497,33 @@ namespace SyncMagic
 
         private async void StartGifRecording()
         {
-            // Stop any existing GIF recording  
-            StopGifRecording();
+            if (getFrame == null)
+                return;
 
-            // Initialize the cancellation token source  
-            gifCancellationTokenSource = new CancellationTokenSource();
-            CancellationToken cancellationToken = gifCancellationTokenSource.Token;
-
-            try
-            {
-                int deviceLoopMs = 60000;       // Target runtime of GIF on device (tuneable)
-                const int safetyMs = 200;       // Headroom to avoid device looping old GIF
-                double emaEncodeMs = 150;       // EMA of encode time
-                const int minFrames = 10;
-                const int maxFrames = 60;
-                const int baseCaptureIntervalMs = 250; // baseline pacing for capture
-                double emaUploadMs = 1200;      // Initial EMA upload estimate
-                const double emaAlpha = 0.30;   // EMA smoothing factor
-                const int targetPauseMs = 3000; // Desired max pause (encode+upload) in ms
-                const double adjustMin = 1.5;   // Minimum scale step per cycle
-                const double adjustMax = 2.25;  // Maximum scale step per cycle
-
-                double frameScale = 1.0;        // Multiplier to adjust frames based on measured pause
-
-                List<Bitmap> gifFrames = new List<Bitmap>();
-
-                while (!cancellationToken.IsCancellationRequested)
+            gifGenerator = new GifGenerator(
+                imageUploader,
+                getFrame,
+                (image) =>
                 {
-                    gifFrames.Clear();
-
-                    // Compute capture budget so that encode+upload finishes before current device loop ends
-                    int captureBudgetMs = deviceLoopMs - (int)Math.Ceiling(emaUploadMs) - safetyMs - (int)Math.Ceiling(emaEncodeMs);
-                    if (captureBudgetMs < 1000) captureBudgetMs = 1000; // at least 1s of motion
-
-                    // Fewer frames when budget is small (apply dynamic scaling to hit pause target)
-                    int baseFrames = Math.Max(1, captureBudgetMs / baseCaptureIntervalMs);
-                    int frameCount = (int)Math.Round(baseFrames * frameScale);
-                    frameCount = Math.Clamp(frameCount, minFrames, maxFrames);
-                    if (frameCount < 1) frameCount = 1;
-
-                    // Distribute capture over captureBudgetMs
-                    int captureIntervalMs = Math.Max(1, captureBudgetMs / frameCount);
-
-                    // Collect frames for the GIF  
-                    for (int i = 0; i < frameCount; i++)
+                    if (picScreen.Image != null)
                     {
-                        if (cancellationToken.IsCancellationRequested)
-                            break;
-
-                        // Get a frame from the active simulation  
-                        Bitmap frame = getFrame.Invoke();
-
-                        // Resize the frame to 240x240  
-                        Bitmap resizedFrame = ResizeToFixedSize(frame, 240, 240);
-
-                        // Apply rotation if requested
-                        ApplyRotationInPlace(resizedFrame);
-
-                        // Apply full-frame mirroring if requested (affects all apps, e.g., RSS)
-                        if (RenderOptions.MirrorFrame)
-                        {
-                            resizedFrame.RotateFlip(RotateFlipType.RotateNoneFlipX);
-                        }
-
-                        // Add the resized/rotated frame to the list  
-                        gifFrames.Add(resizedFrame);
-
-                        // Dispose of the original frame  
-                        frame.Dispose();
-
-                        // Update the PictureBox with the latest resized frame  
-                        if (this.InvokeRequired)
-                        {
-                            this.Invoke(new Action(() =>
-                            {
-                                if (picScreen.Image != null)
-                                {
-                                    ImageAnimator.StopAnimate(picScreen.Image, OnFrameChanged);
-                                    picScreen.Image.Dispose();
-                                    picScreen.Image = null;
-                                }
-                                picScreen.Image = (Bitmap)resizedFrame.Clone();
-                                picScreen.Invalidate();
-                            }));
-                        }
-                        else
-                        {
-                            if (picScreen.Image != null)
-                            {
-                                ImageAnimator.StopAnimate(picScreen.Image, OnFrameChanged);
-                                picScreen.Image.Dispose();
-                                picScreen.Image = null;
-                            }
-                            picScreen.Image = (Bitmap)resizedFrame.Clone();
-                            picScreen.Invalidate();
-                        }
-
-                        // Wait between captures with small headroom
-                        int waitMs = Math.Max(1, captureIntervalMs - 30);
-                        await Task.Delay(waitMs, cancellationToken);
+                        ImageAnimator.StopAnimate(picScreen.Image, OnFrameChanged);
+                        picScreen.Image.Dispose();
+                        picScreen.Image = null;
                     }
 
-                    if (cancellationToken.IsCancellationRequested)
-                        break;
+                    picScreen.Image = image;
+                    ImageAnimator.Animate(picScreen.Image, OnFrameChanged);
+                    picScreen.Invalidate();
+                },
+                txtIPAddress
+            );
 
-                    // Build per-frame delays with easing and edge holds to mask upload pauses
-                    // Estimate total pause we need to hide using EMA from previous cycles
-                    int estPauseMs = (int)Math.Ceiling(emaUploadMs + emaEncodeMs);
-                    estPauseMs = Math.Clamp(estPauseMs, 1000, 6000); // keep holds within sensible bounds
-                    // Split holds evenly between start and end frames
-                    int holdStartMs = estPauseMs / 2;
-                    int holdEndMs = estPauseMs - holdStartMs;
-
-                    // Compute delays for each frame so that:
-                    // - First and last frames are completely still (extra hold time)
-                    // - Interior frames use an ease-in-out timing distribution
-                    // - Sum of all delays ~= deviceLoopMs
-                    List<int> perFrameDelays = BuildEasedDelays(deviceLoopMs, gifFrames.Count, holdStartMs, holdEndMs);
-
-                    // Measure encode time
-                    var encodeSw = Stopwatch.StartNew();
-                    // Assemble frames into GIF with full 256-color palette for richer colors
-                    // Use per-frame delays to realize easing and start/end holds
-                    using (var gif = AnimatedGif.AnimatedGif.Create("screen.gif", 10))
-                    {
-                        for (int i = 0; i < gifFrames.Count; i++)
-                        {
-                            var image = gifFrames[i];
-                            var delay = perFrameDelays[i];
-                            gif.AddFrame(image, delay, GifQuality.Bit8);
-                        }
-                    }
-                    encodeSw.Stop();
-                    var encodeDuration = encodeSw.Elapsed;
-
-                    // Upload the GIF and measure actual upload time
-                    var sw = Stopwatch.StartNew();
-                    await imageUploader.UploadGifAsync(txtIPAddress, "screen.gif");
-                    sw.Stop();
-                    var uploadDuration = sw.Elapsed;
-
-                    // Log measured pause components (encode + upload)
-                    var totalPause = encodeDuration + uploadDuration;
-                    Debug.WriteLine($"GIF encode: {encodeDuration.TotalMilliseconds:F0} ms, upload: {uploadDuration.TotalMilliseconds:F0} ms, pause total: {totalPause.TotalMilliseconds:F0} ms, frames: {gifFrames.Count}, loop: {deviceLoopMs} ms, capture window: {captureBudgetMs} ms, frameScale: {frameScale:F2}, holdStart: {holdStartMs} ms, holdEnd: {holdEndMs} ms");
-
-                    // Update PictureBox to show the new GIF
-                    if (this.InvokeRequired)
-                    {
-                        this.Invoke(new Action(() =>
-                        {
-                            UpdatePictureBoxWithGif();
-                        }));
-                    }
-                    else
-                    {
-                        UpdatePictureBoxWithGif();
-                    }
-
-                    // Dispose frames after using them  
-                    foreach (var img in gifFrames)
-                    {
-                        img.Dispose();
-                    }
-                    gifFrames.Clear();
-
-                    // Update EMA for next cycle
-                    emaUploadMs = emaAlpha * uploadDuration.TotalMilliseconds + (1 - emaAlpha) * emaUploadMs;
-                    emaEncodeMs = emaAlpha * encodeDuration.TotalMilliseconds + (1 - emaAlpha) * emaEncodeMs;
-
-                    // Adapt frame scaling to drive pause toward target
-                    double s = targetPauseMs / Math.Max(1.0, totalPause.TotalMilliseconds);
-                    s = Math.Clamp(s, adjustMin, adjustMax);
-                    frameScale = Math.Clamp(frameScale * s, 0.1, 3.0);
-
-                    // Immediately start capturing next segment; upload will finish before next loop end by design
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                // Task was canceled  
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error: {ex.Message}");
-            }
+            await gifGenerator.StartRecordingAsync(
+                CancellationToken.None
+            );
         }
 
-        private void StopGifRecording()
-        {
-            if (gifCancellationTokenSource != null)
-            {
-                gifCancellationTokenSource.Cancel();
-                gifCancellationTokenSource.Dispose();
-                gifCancellationTokenSource = null;
-            }
-        }
 
         private void LoadLastIp()
         {
@@ -729,152 +560,6 @@ namespace SyncMagic
         private void btnSaveIP_Click(object? sender, EventArgs e)
         {
             SaveLastIp();
-        }
-
-        private Bitmap ResizeToFixedSize(Bitmap source, int width, int height)
-        {
-            // Render to 24bpp to help GIF quantization and keep colors vivid
-            var resizedBitmap = new Bitmap(width, height, PixelFormat.Format24bppRgb);
-            using (var graphics = Graphics.FromImage(resizedBitmap))
-            {
-                graphics.CompositingQuality = CompositingQuality.HighQuality;
-                graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
-                graphics.DrawImage(source, 0, 0, width, height);
-            }
-            return resizedBitmap;
-        }
-
-        private void UpdatePictureBoxWithGif()
-        {
-            if (picScreen.Image != null)
-            {
-                ImageAnimator.StopAnimate(picScreen.Image, OnFrameChanged);
-                picScreen.Image.Dispose();
-                picScreen.Image = null;
-            }
-
-            // Dispose previous MemoryStream  
-            pictureBoxMemoryStream?.Dispose();
-
-            // Read the GIF file into a MemoryStream  
-            byte[] imageData = File.ReadAllBytes("screen.gif");
-            pictureBoxMemoryStream = new MemoryStream(imageData);
-
-            picScreen.Image = Image.FromStream(pictureBoxMemoryStream);
-
-            // Start the animation for the GIF  
-            ImageAnimator.Animate(picScreen.Image, OnFrameChanged);
-
-            // Force the PictureBox to repaint  
-            picScreen.Invalidate();
-        }
-
-        private void ApplyRotationInPlace(Bitmap bmp)
-        {
-            int deg = RenderOptions.RotationDegrees % 360;
-            if (deg < 0) deg += 360;
-            switch (deg)
-            {
-                case 90:
-                    bmp.RotateFlip(RotateFlipType.Rotate90FlipNone);
-                    break;
-                case 180:
-                    bmp.RotateFlip(RotateFlipType.Rotate180FlipNone);
-                    break;
-                case 270:
-                    bmp.RotateFlip(RotateFlipType.Rotate270FlipNone);
-                    break;
-                default:
-                    break;
-            }
-        }
-
-        // Build per-frame delays that fill totalLoopMs duration using:
-        // - A still hold on the first and last frame (holdStartMs/holdEndMs)
-        // - An ease-in-out timing across the interior frames (faster in the middle)
-        private static List<int> BuildEasedDelays(int totalLoopMs, int frameCount, int holdStartMs, int holdEndMs)
-        {
-            var delays = new List<int>(Math.Max(frameCount, 1));
-
-            if (frameCount <= 0)
-            {
-                return new List<int> { totalLoopMs };
-            }
-
-            if (frameCount == 1)
-            {
-                // Single frame: just show the still image the whole loop
-                delays.Add(totalLoopMs);
-                return delays;
-            }
-
-            // Ensure holds are not longer than the loop itself
-            int maxHolds = Math.Min(totalLoopMs - 2, Math.Max(0, holdStartMs + holdEndMs));
-            int sHold = Math.Min(holdStartMs, maxHolds / 2);
-            int eHold = Math.Min(holdEndMs, maxHolds - sHold);
-
-            // Interior movement budget
-            int interiorFrames = Math.Max(0, frameCount - 2);
-            int movementBudget = Math.Max(0, totalLoopMs - sHold - eHold);
-
-            // No interior frames: split budget across ends
-            if (interiorFrames == 0)
-            {
-                delays.Add(movementBudget / 2 + sHold);
-                delays.Add(movementBudget - movementBudget / 2 + eHold);
-                return delays;
-            }
-
-            // Build easing weights for interior frames so that timing is longer near edges and shorter in the middle
-            // weight(t) = baseline + (1-baseline) * (0.5 + 0.5*cos(2πt)) where t in [0,1]
-            // This yields more time at the edges (ease-in/out) while guaranteeing positive weights.
-            double baseline = 0.25; // keep minimum share for middle frames
-            double sumW = 0.0;
-            double[] w = new double[interiorFrames];
-            if (interiorFrames == 1)
-            {
-                w[0] = 1.0;
-                sumW = 1.0;
-            }
-            else
-            {
-                for (int j = 0; j < interiorFrames; j++)
-                {
-                    double t = (double)j / (interiorFrames - 1);
-                    double wt = baseline + (1.0 - baseline) * (0.5 + 0.5 * Math.Cos(2.0 * Math.PI * t));
-                    w[j] = wt;
-                    sumW += wt;
-                }
-            }
-
-            // First frame gets the start hold, last frame gets the end hold
-            delays.Add(Math.Max(1, sHold));
-
-            // Distribute movement budget across interior frames according to easing weights
-            int allocated = 0;
-            for (int j = 0; j < interiorFrames; j++)
-            {
-                int d = (int)Math.Round(w[j] / sumW * movementBudget);
-                if (d < 1) d = 1; // GIF frame delay must be >=1ms
-                delays.Add(d);
-                allocated += d;
-            }
-
-            // Last frame with end hold; adjust for rounding so total matches totalLoopMs
-            int used = 0;
-            foreach (var d in delays) used += d;
-            int remaining = totalLoopMs - used - eHold;
-            if (remaining < 0) remaining = 0;
-            delays.Add(Math.Max(1, remaining + eHold));
-
-            // Final correction: adjust last frame so sum equals totalLoopMs exactly
-            int sum = 0;
-            foreach (var d in delays) sum += d;
-            int diff = totalLoopMs - sum;
-            delays[delays.Count - 1] = Math.Max(1, delays[delays.Count - 1] + diff);
-
-            return delays;
         }
 
         private void OnFrameChanged(object sender, EventArgs e)
